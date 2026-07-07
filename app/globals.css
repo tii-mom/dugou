@@ -68,12 +68,27 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    -webkit-tap-highlight-color: transparent;
   }
   html {
     @apply bg-background;
   }
   body {
     @apply bg-background text-foreground font-sans;
+    font-variant-numeric: tabular-nums;
+  }
+  button {
+    touch-action: manipulation;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 
@@ -270,4 +285,62 @@
   backdrop-filter: blur(12px);
   border: 1px solid oklch(1 0 0 / 12%);
   box-shadow: 0 0 0 1px oklch(0.74 0.17 55 / 8%), 0 8px 32px oklch(0 0 0 / 40%);
+}
+
+/* ===== 进度条流光（元素自身需已定位） ===== */
+.shimmer {
+  overflow: hidden;
+}
+.shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 30%, oklch(1 0 0 / 22%) 50%, transparent 70%);
+  background-size: 200% 100%;
+  animation: shimmer-sweep 2.6s ease-in-out infinite;
+}
+@keyframes shimmer-sweep {
+  from { background-position: 200% 0; }
+  to { background-position: -100% 0; }
+}
+
+/* ===== 数字跳动 ===== */
+.num-pop {
+  animation: num-pop 0.5s cubic-bezier(0.2, 1.5, 0.4, 1) 1;
+}
+@keyframes num-pop {
+  0% { transform: scale(1.35); color: oklch(0.75 0.16 155); }
+  100% { transform: scale(1); }
+}
+
+/* ===== 底部导航激活点 ===== */
+.tab-active-dot {
+  animation: tab-dot-in 0.3s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+@keyframes tab-dot-in {
+  from { transform: scaleX(0.2); opacity: 0; }
+  to { transform: scaleX(1); opacity: 1; }
+}
+
+/* ===== 转盘旋转 ===== */
+.wheel-spin {
+  animation: wheel-spin 0.5s linear infinite;
+}
+@keyframes wheel-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ===== 传说勋章金辉 ===== */
+.legendary-glow {
+  box-shadow: 0 0 18px oklch(0.74 0.17 55 / 25%), inset 0 0 14px oklch(0.74 0.17 55 / 10%);
+}
+
+/* ===== 页面淡入 ===== */
+.page-fade {
+  animation: page-fade 0.35s ease-out both;
+}
+@keyframes page-fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }

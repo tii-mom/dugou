@@ -27,11 +27,17 @@ export function BottomNav() {
               type="button"
               onClick={() => setTab(id)}
               aria-current={active ? 'page' : undefined}
-              className={`flex flex-1 flex-col items-center gap-1 py-3 text-[10px] font-bold transition-colors ${
-                active ? 'text-primary' : 'text-muted-foreground'
+              className={`relative flex flex-1 flex-col items-center gap-1 py-3 text-[10px] font-bold transition-colors ${
+                active ? 'text-primary' : 'text-muted-foreground active:text-foreground'
               }`}
             >
-              <Icon className="size-5" aria-hidden="true" />
+              {active && (
+                <span
+                  className="tab-active-dot absolute top-0 h-0.5 w-8 rounded-full bg-primary shadow-[0_0_8px_oklch(0.74_0.17_55/70%)]"
+                  aria-hidden="true"
+                />
+              )}
+              <Icon className={`size-5 transition-transform ${active ? 'scale-110' : ''}`} aria-hidden="true" />
               {label}
             </button>
           )

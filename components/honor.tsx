@@ -28,7 +28,14 @@ export function Honor() {
   const [board, setBoard] = useState<'loss' | 'speed'>('loss')
   const [spinning, setSpinning] = useState(false)
   const [prize, setPrize] = useState<string | null>(null)
+  const [flashIdx, setFlashIdx] = useState(0)
   const countdown = useCountdown()
+
+  useEffect(() => {
+    if (!spinning) return
+    const t = setInterval(() => setFlashIdx((i) => (i + 1) % wheelPrizes.length), 120)
+    return () => clearInterval(t)
+  }, [spinning])
 
   function spin() {
     if (spinning || prize) return
@@ -40,7 +47,7 @@ export function Honor() {
   }
 
   return (
-    <div className="flex flex-col gap-6 px-5 pb-28 pt-5">
+    <div className="page-fade flex flex-col gap-6 px-5 pb-28 pt-5">
       <header className="flex flex-col gap-1">
         <h1 className="text-xl font-bold">荣誉室</h1>
         <p className="text-xs text-muted-foreground">S1 赛季 · 「首季幸存者」限定勋章开放中</p>
@@ -68,7 +75,9 @@ export function Honor() {
           {badges.map((b) => (
             <div
               key={b.name}
-              className={`flex flex-col gap-2 rounded-2xl border bg-card p-4 ${rarityStyle[b.rarity]} ${b.owned ? '' : 'opacity-50'}`}
+              className={`flex flex-col gap-2 rounded-2xl border bg-card p-4 ${rarityStyle[b.rarity]} ${
+                b.owned ? (b.rarity === '传说' ? 'legendary-glow' : '') : 'opacity-50'
+              }`}
             >
               <div className="flex items-center justify-between">
                 {b.owned ? <Award className="size-5" aria-hidden="true" /> : <Lock className="size-5" aria-hidden="true" />}
@@ -127,11 +136,17 @@ export function Honor() {
       {/* 命运转盘 */}
       <section className="evidence-card flex flex-col items-center gap-4 rounded-3xl p-6 text-center">
         <h2 className="flex items-center gap-2 text-sm font-bold">
-          <Dices className="size-4 text-primary" aria-hidden="true" />
+          <Dices className={`size-4 text-primary ${spinning ? 'wheel-spin' : ''}`} aria-hidden="true" />
           命运转盘 · 每日免费一次
         </h2>
-        {prize ? (
-          <p className="crit-burst font-mono text-2xl font-bold text-primary">{prize}</p>
+        {spinning ? (
+          <div className="flex h-8 items-center gap-2 overflow-hidden font-mono text-sm text-foreground" aria-hidden="true">
+            <span>{wheelPrizes[flashIdx]}</span>
+          </div>
+        ) : prize ? (
+          <p className="crit-burst font-mono text-2xl font-bold text-primary" aria-live="polite">
+            {prize}
+          </p>
         ) : (
           <p className="text-xs leading-relaxed text-muted-foreground">
             今天没存款也没关系，完成分享或邀请任务即可换取一次免费转盘机会。
