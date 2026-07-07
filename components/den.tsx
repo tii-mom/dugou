@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Crown, Flag, Flame, Lock, Megaphone, Radio, Star, Swords } from 'lucide-react'
 import { believers, inviteLines, teamMembers, teamTitles } from '@/lib/mock-data'
 
@@ -10,10 +10,18 @@ export function Den() {
   const [panelOpen, setPanelOpen] = useState(false)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [beaconSent, setBeaconSent] = useState(false)
-  const invite = inviteLines[0]
+  const [helpers, setHelpers] = useState(0)
+  const [inviteIdx, setInviteIdx] = useState(0)
+  const invite = inviteLines[inviteIdx]
+
+  useEffect(() => {
+    if (!beaconSent || helpers >= 3) return
+    const t = setTimeout(() => setHelpers((h) => h + 1), 2500 + Math.random() * 2000)
+    return () => clearTimeout(t)
+  }, [beaconSent, helpers])
 
   return (
-    <div className="flex flex-col gap-6 px-5 pb-28 pt-5">
+    <div className="page-fade flex flex-col gap-6 px-5 pb-28 pt-5">
       <header className="flex items-center justify-between">
         <div className="flex flex-col">
           <h1 className="text-xl font-bold">回本敢死队</h1>
@@ -32,7 +40,7 @@ export function Den() {
         </div>
         <div className="relative h-8 w-full overflow-hidden rounded-full border border-border bg-secondary/60">
           <div
-            className="liquid-surface absolute inset-y-0 left-0 rounded-full bg-success/80"
+            className="liquid-surface shimmer absolute inset-y-0 left-0 rounded-full bg-success/80"
             style={{ width: `${TEAM_PROGRESS * 100}%`, boxShadow: '6px 0 20px oklch(0.75 0.16 155 / 50%)' }}
           />
         </div>
@@ -116,7 +124,16 @@ export function Den() {
       {/* 招募令卡片预览 */}
       {inviteOpen && (
         <section className="evidence-card rise-in flex flex-col gap-4 rounded-3xl border-primary/50 p-6">
-          <p className="font-mono text-xs tracking-[0.3em] text-primary">RECRUIT ORDER · 招募令</p>
+          <div className="flex items-center justify-between">
+            <p className="font-mono text-xs tracking-[0.3em] text-primary">RECRUIT ORDER · 招募令</p>
+            <button
+              type="button"
+              onClick={() => setInviteIdx((i) => (i + 1) % inviteLines.length)}
+              className="text-xs text-muted-foreground underline underline-offset-2"
+            >
+              换一句
+            </button>
+          </div>
           <p className="text-lg font-bold leading-snug">{invite}</p>
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>集体进度 {Math.round(TEAM_PROGRESS * 100)}%</span>
@@ -146,13 +163,30 @@ export function Den() {
         <p className="text-xs leading-relaxed text-muted-foreground">
           进度卡在瓶颈期？发射一枚求救信标，邀请三位好友为你举火。每位好友点击后为你的进度条注入一小笔燃料，好友自己也能获得小额体验代币。
         </p>
+        {beaconSent && (
+          <div className="flex items-center gap-2" aria-label={`已有 ${helpers} 位好友举火`}>
+            {[0, 1, 2].map((i) => (
+              <span
+                key={i}
+                className={`flex size-8 items-center justify-center rounded-full border transition-colors ${
+                  i < helpers ? 'border-primary bg-primary/20 text-primary' : 'border-border bg-secondary text-muted-foreground'
+                }`}
+              >
+                <Flame className="size-3.5" aria-hidden="true" />
+              </span>
+            ))}
+            <span className="ml-1 font-mono text-xs text-muted-foreground" aria-live="polite">
+              {helpers >= 3 ? '燃料已注满，进度 +2%' : `${helpers}/3 位好友已举火`}
+            </span>
+          </div>
+        )}
         <button
           type="button"
           onClick={() => setBeaconSent(true)}
           disabled={beaconSent}
-          className="rounded-xl border border-destructive/50 bg-destructive/10 py-3 text-sm font-bold text-destructive disabled:opacity-60"
+          className="rounded-xl border border-destructive/50 bg-destructive/10 py-3 text-sm font-bold text-destructive transition-transform active:scale-[0.98] disabled:opacity-60"
         >
-          {beaconSent ? '信标已发射 · 等待好友举火 0/3' : '发射求救信标'}
+          {beaconSent ? (helpers >= 3 ? '信标任务完成' : '信标已发射 · 等待好友举火') : '发射求救信标'}
         </button>
       </section>
 
@@ -165,7 +199,7 @@ export function Den() {
         <p className="font-mono text-2xl font-bold text-destructive">$128,406,772</p>
         <p className="text-xs text-muted-foreground">全网已上传亏损总和。所有人共同存款攻打这个数字，阶段性里程碑达成后瓜分奖励池。</p>
         <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
-          <div className="h-full rounded-full bg-primary" style={{ width: '31%' }} />
+          <div className="shimmer relative h-full rounded-full bg-primary" style={{ width: '31%' }} />
         </div>
         <p className="text-right font-mono text-[10px] text-muted-foreground">全网讨伐进度 31%</p>
       </section>

@@ -8,7 +8,7 @@ export function Profile() {
   const isGambler = role !== 'believer'
 
   return (
-    <div className="flex flex-col gap-6 px-5 pb-28 pt-5">
+    <div className="page-fade flex flex-col gap-6 px-5 pb-28 pt-5">
       {/* 终极称谓候选区 */}
       <section className="evidence-card flex flex-col items-center gap-3 rounded-3xl p-8 text-center" aria-label="称谓候选区">
         <div

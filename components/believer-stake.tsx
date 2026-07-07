@@ -38,9 +38,9 @@ export function BelieverStake() {
               key={a}
               type="button"
               onClick={() => setAmount(a)}
-              className={`flex-1 rounded-xl border py-4 font-mono text-lg font-bold transition-colors ${
+              className={`flex-1 rounded-xl border py-4 font-mono text-lg font-bold transition-all active:scale-95 ${
                 amount === a
-                  ? 'border-success bg-success/15 text-success'
+                  ? 'border-success bg-success/15 text-success shadow-[0_0_12px_oklch(0.75_0.16_155/25%)]'
                   : 'border-border bg-card text-muted-foreground'
               }`}
             >
@@ -50,7 +50,9 @@ export function BelieverStake() {
         </div>
         <div className="flex items-center justify-between rounded-xl bg-secondary px-4 py-3">
           <span className="text-xs text-muted-foreground">预计每日光合积累</span>
-          <span className="font-mono text-sm font-bold text-success">+{Math.round(amount * 0.8)} 护林值</span>
+          <span key={amount} className="num-pop font-mono text-sm font-bold text-success">
+            +{Math.round(amount * 0.8)} 护林值
+          </span>
         </div>
       </section>
 
