@@ -1,0 +1,274 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --font-sans: var(--font-sans-family), 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-mono: var(--font-mono-family), ui-monospace, 'SFMono-Regular', monospace;
+}
+
+:root {
+  color-scheme: dark;
+  /* 深夜黑 */
+  --background: oklch(0.13 0.01 270);
+  --foreground: oklch(0.93 0.005 90);
+  --card: oklch(0.17 0.012 270);
+  --card-foreground: oklch(0.93 0.005 90);
+  --popover: oklch(0.17 0.012 270);
+  --popover-foreground: oklch(0.93 0.005 90);
+  /* 荧光暖橙：品牌色 */
+  --primary: oklch(0.74 0.17 55);
+  --primary-foreground: oklch(0.15 0.02 55);
+  --secondary: oklch(0.22 0.012 270);
+  --secondary-foreground: oklch(0.93 0.005 90);
+  --muted: oklch(0.22 0.012 270);
+  --muted-foreground: oklch(0.62 0.01 270);
+  /* 救赎绿 */
+  --accent: oklch(0.75 0.16 155);
+  --accent-foreground: oklch(0.14 0.03 155);
+  --success: oklch(0.75 0.16 155);
+  --success-foreground: oklch(0.14 0.03 155);
+  /* 警示红 */
+  --destructive: oklch(0.6 0.22 25);
+  --destructive-foreground: oklch(0.96 0.01 25);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.74 0.17 55);
+  --radius: 1rem;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply bg-background;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+}
+
+/* ===== K 线残影背景 ===== */
+.kline-bg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image:
+    repeating-linear-gradient(90deg, transparent 0 22px, oklch(0.75 0.16 155) 22px 25px, transparent 25px 47px, oklch(0.6 0.22 25) 47px 50px),
+    repeating-linear-gradient(0deg, transparent 0 60px, oklch(0.6 0.05 270) 60px 61px);
+  animation: kline-drift 60s linear infinite;
+}
+@keyframes kline-drift {
+  from { background-position: 0 0, 0 0; }
+  to { background-position: -400px 120px, 0 -200px; }
+}
+
+/* ===== 故障闪烁 Glitch ===== */
+.glitch {
+  position: relative;
+  animation: glitch-flicker 3.2s infinite;
+}
+.glitch::before,
+.glitch::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+}
+.glitch::before {
+  color: oklch(0.6 0.22 25);
+  animation: glitch-shift-a 3.2s infinite;
+}
+.glitch::after {
+  color: oklch(0.75 0.16 155);
+  animation: glitch-shift-b 3.2s infinite;
+}
+@keyframes glitch-flicker {
+  0%, 91%, 94%, 100% { opacity: 1; }
+  92%, 93% { opacity: 0.6; }
+}
+@keyframes glitch-shift-a {
+  0%, 89%, 96%, 100% { opacity: 0; transform: none; }
+  90%, 95% { opacity: 0.7; transform: translate(-3px, 1px); }
+}
+@keyframes glitch-shift-b {
+  0%, 89%, 96%, 100% { opacity: 0; transform: none; }
+  91%, 94% { opacity: 0.7; transform: translate(3px, -1px); }
+}
+
+/* ===== 心跳呼吸按钮 ===== */
+.breathe {
+  animation: breathe 2.4s ease-in-out infinite;
+}
+@keyframes breathe {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 20px 0 oklch(0.74 0.17 55 / 35%); }
+  50% { transform: scale(1.04); box-shadow: 0 0 44px 6px oklch(0.74 0.17 55 / 55%); }
+}
+
+/* ===== 滚动字幕流 ===== */
+.ticker-track {
+  display: flex;
+  width: max-content;
+  animation: ticker-scroll 36s linear infinite;
+}
+@keyframes ticker-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+/* ===== 扫描仪式激光 ===== */
+.scan-laser {
+  animation: scan-sweep 1.4s ease-in-out infinite;
+}
+@keyframes scan-sweep {
+  0% { top: 0%; opacity: 0.4; }
+  50% { top: calc(100% - 3px); opacity: 1; }
+  100% { top: 0%; opacity: 0.4; }
+}
+
+/* ===== 虚线扫描边框 ===== */
+.dash-glow {
+  background-image: repeating-linear-gradient(90deg, oklch(0.74 0.17 55 / 70%) 0 10px, transparent 10px 20px),
+    repeating-linear-gradient(90deg, oklch(0.74 0.17 55 / 70%) 0 10px, transparent 10px 20px),
+    repeating-linear-gradient(0deg, oklch(0.74 0.17 55 / 70%) 0 10px, transparent 10px 20px),
+    repeating-linear-gradient(0deg, oklch(0.74 0.17 55 / 70%) 0 10px, transparent 10px 20px);
+  background-size: 100% 2px, 100% 2px, 2px 100%, 2px 100%;
+  background-position: 0 0, 0 100%, 0 0, 100% 0;
+  background-repeat: no-repeat;
+  animation: dash-march 1.2s linear infinite;
+}
+@keyframes dash-march {
+  from { background-position: 0 0, 20px 100%, 0 20px, 100% 0; }
+  to { background-position: 20px 0, 0 100%, 0 0, 100% 20px; }
+}
+
+/* ===== 红光闪烁（宣判） ===== */
+.red-flash {
+  animation: red-flash 0.7s ease-out 1;
+}
+@keyframes red-flash {
+  0% { background-color: oklch(0.6 0.22 25 / 45%); }
+  100% { background-color: transparent; }
+}
+
+/* ===== 液面水波 ===== */
+.liquid-surface {
+  animation: liquid-wave 3s ease-in-out infinite;
+}
+@keyframes liquid-wave {
+  0%, 100% { transform: translateY(0) scaleY(1); }
+  50% { transform: translateY(-3px) scaleY(1.02); }
+}
+
+/* ===== 篝火辉光 ===== */
+.fire-glow {
+  animation: fire-glow 2s ease-in-out infinite;
+}
+@keyframes fire-glow {
+  0%, 100% { box-shadow: 0 0 26px 2px oklch(0.74 0.17 55 / 40%); }
+  50% { box-shadow: 0 0 56px 10px oklch(0.74 0.17 55 / 65%); }
+}
+
+/* ===== 粒子上升 ===== */
+.particle {
+  position: absolute;
+  bottom: 0;
+  border-radius: 9999px;
+  animation: particle-rise 1.4s ease-out forwards;
+}
+@keyframes particle-rise {
+  0% { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(-160px) scale(0.2); opacity: 0; }
+}
+
+/* ===== 暴击金色炸裂 ===== */
+.crit-burst {
+  animation: crit-burst 0.9s cubic-bezier(0.2, 1.4, 0.4, 1) 1;
+}
+@keyframes crit-burst {
+  0% { transform: scale(0.2); opacity: 0; }
+  55% { transform: scale(1.25); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* ===== 破晓白屏震动 ===== */
+.dawn-shake {
+  animation: dawn-shake 0.5s ease-out 1;
+}
+@keyframes dawn-shake {
+  0% { transform: translate(0); }
+  20% { transform: translate(-5px, 3px); }
+  40% { transform: translate(5px, -3px); }
+  60% { transform: translate(-3px, -2px); }
+  80% { transform: translate(3px, 2px); }
+  100% { transform: translate(0); }
+}
+
+/* ===== 逐字放大 ===== */
+.char-pop {
+  display: inline-block;
+  opacity: 0;
+  animation: char-pop 0.6s cubic-bezier(0.2, 1.6, 0.4, 1) forwards;
+}
+@keyframes char-pop {
+  0% { opacity: 0; transform: scale(2.6); filter: blur(6px); }
+  100% { opacity: 1; transform: scale(1); filter: blur(0); }
+}
+
+/* ===== 卡片浮现 ===== */
+.rise-in {
+  animation: rise-in 0.7s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== 心碎抖动 ===== */
+.heartbreak {
+  animation: heartbreak 0.6s ease-in-out 1;
+}
+@keyframes heartbreak {
+  0%, 100% { transform: rotate(0); }
+  25% { transform: rotate(-6deg) scale(0.95); }
+  75% { transform: rotate(6deg) scale(0.95); }
+}
+
+/* ===== 发光细描边卡片 ===== */
+.evidence-card {
+  background: oklch(0.17 0.012 270 / 78%);
+  backdrop-filter: blur(12px);
+  border: 1px solid oklch(1 0 0 / 12%);
+  box-shadow: 0 0 0 1px oklch(0.74 0.17 55 / 8%), 0 8px 32px oklch(0 0 0 / 40%);
+}
