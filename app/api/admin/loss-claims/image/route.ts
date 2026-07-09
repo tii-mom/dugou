@@ -1,5 +1,6 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { verifyAdminReviewToken } from '@/lib/admin-auth'
+import { isRateLimited } from '@/lib/rate-limit'
 
 export const runtime = 'edge'
 
@@ -17,6 +18,9 @@ function getEnv() {
 
 export async function GET(request: Request) {
   const env = getEnv()
+  if (await isRateLimited(request, env.DB, { route: '/api/admin/loss-claims/image', limit: 30 })) {
+    return text('Too many requests.', 429)
+  }
   if (!(await verifyAdminReviewToken(request, env))) {
     return text('Unauthorized.', 401)
   }

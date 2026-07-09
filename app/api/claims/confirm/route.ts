@@ -1,6 +1,7 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { getSessionUser } from '@/lib/auth-server'
 import { findClaimBuyerTransaction, getUserPackages } from '@/lib/ton-chain-client'
+import { isRateLimited } from '@/lib/rate-limit'
 
 export const runtime = 'edge'
 
@@ -11,6 +12,14 @@ async function confirmClaim(request: Request, claimId: string) {
   } catch {}
   const env = (context?.env || {}) as CloudflareEnv
   const db = env.DB
+  
+  // Rate limit check
+  if (await isRateLimited(request, db, { route: '/api/claims/confirm', limit: 20 })) {
+    return new Response(JSON.stringify({ error: 'Too many requests.' }), {
+      status: 429,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
   const isProd = process.env.NODE_ENV === 'production'
 
   if (!db) {

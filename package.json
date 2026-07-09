@@ -13,7 +13,8 @@
     "cf:deploy": "pnpm exec next-on-pages && node scripts/patch-cf-build.cjs && pnpm exec wrangler pages deploy .vercel/output/static",
     "db:migrate:local": "pnpm exec wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "pnpm exec wrangler d1 migrations apply DB --remote",
-    "verify:backend": "node scripts/verify-backend.cjs"
+    "verify:backend": "node scripts/verify-backend.cjs",
+    "verify:real-chain:readonly": "node scripts/verify-real-chain-readonly.cjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

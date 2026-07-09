@@ -1,6 +1,7 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { Address } from '@ton/core'
 import { getSessionUser } from '@/lib/auth-server'
+import { isRateLimited } from '@/lib/rate-limit'
 import { getUserPackages, getVestingData } from '@/lib/ton-chain-client'
 import { buildClaimBuyerPayload } from '@/lib/ton-payload'
 import { DIAO_CONTRACTS, DIAO_TOKENOMICS } from '@/lib/ton-config'
@@ -61,6 +62,14 @@ export async function POST(request: Request) {
     } catch {}
     const env = (context?.env || {}) as CloudflareEnv
     const db = env.DB
+    
+    // Rate limit check
+    if (await isRateLimited(request, db, { route: '/api/claims/intent', limit: 10, walletAddress })) {
+      return new Response(JSON.stringify({ error: 'Too many requests.' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
     const isProd = process.env.NODE_ENV === 'production'
 
     if (!db && isProd) {

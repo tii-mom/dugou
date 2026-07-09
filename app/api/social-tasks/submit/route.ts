@@ -1,6 +1,7 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { getSessionUser } from '@/lib/auth-server'
 import { verifySocialTask } from '@/lib/agnes-ai'
+import { isRateLimited } from '@/lib/rate-limit'
 
 export const runtime = 'edge'
 
@@ -189,6 +190,11 @@ export async function POST(request: Request) {
     } catch {}
     const env = (context?.env || {}) as CloudflareEnv
     const db = env.DB
+    
+    // Rate limit check
+    if (await isRateLimited(request, db, { route: '/api/social-tasks/submit', limit: 20 })) {
+      return json({ error: 'Too many requests.' }, 429)
+    }
 
     if (!db) {
       return json({ error: 'D1 DB binding is not configured.' }, 503)

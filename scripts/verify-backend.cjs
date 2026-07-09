@@ -68,7 +68,8 @@ VALUES ('test-claim-other-user', 'some-other-uuid', 'test-key-other-user', 'not_
       // Apply migrations to test db statement by statement, ignoring duplicate column or table errors
       const migrationSql5 = fs.readFileSync(path.join(process.cwd(), 'migrations/0005_social_tasks.sql'), 'utf8');
       const migrationSql6 = fs.readFileSync(path.join(process.cwd(), 'migrations/0006_production_hardening.sql'), 'utf8');
-      const allStatements = (migrationSql5 + '\n' + migrationSql6)
+      const migrationSql7 = fs.readFileSync(path.join(process.cwd(), 'migrations/0007_rate_limit.sql'), 'utf8');
+      const allStatements = (migrationSql5 + '\n' + migrationSql6 + '\n' + migrationSql7)
         .split(';')
         .map(s => s.trim())
         .filter(s => s.length > 0);
@@ -986,6 +987,63 @@ async function runTests() {
     }
   } catch (err) {
     assert("Test 32: Admin social task PATCH success", false, err.message);
+  }
+
+  // === RATE LIMIT TESTS ===
+  console.log("\n--- Running Rate Limit V1 Tests ---");
+
+  // Reset rate limits
+  runSqlOnDbs("DELETE FROM diao_rate_limits;");
+
+  // 1. Send 10 requests to /api/auth/telegram (all should return 401/400 but not 429)
+  // And the 11th should return 429
+  try {
+    let got429 = false;
+    for (let i = 0; i < 11; i++) {
+      const res = await fetch(`${baseUrl}/api/auth/telegram`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData: '' })
+      });
+      const status = res.status;
+      if (status === 429) {
+        got429 = true;
+        const json = await res.json();
+        assert(
+          "Test 33a: Rate Limit V1 - 11th request returns 429",
+          json.error === "Too many requests.",
+          `Expected error message, got: ${JSON.stringify(json)}`
+        );
+        break;
+      }
+    }
+    assert("Test 33b: Rate Limit V1 - Hit limit", got429, "Expected to get 429 after exceeding limit");
+  } catch (err) {
+    assert("Test 33: Rate Limit V1 - auth threshold", false, err.message);
+  }
+
+  // 2. Different routes do not affect each other
+  try {
+    const res = await fetch(`${baseUrl}/api/token-sale/intent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ walletAddress: 'test-wallet', packages: 2 })
+    });
+    assert(
+      "Test 34: Rate Limit V1 - Different route not affected",
+      res.status !== 429,
+      `Expected status !== 429 for different route, got ${res.status}`
+    );
+  } catch (err) {
+    assert("Test 34: Rate Limit V1 - Isolation check", false, err.message);
+  }
+
+  // 3. Check rate limits table row is created
+  try {
+    runSqlOnDbs("SELECT * FROM diao_rate_limits;");
+    assert("Test 35: Rate Limit V1 - Table query succeeds", true, "Table is queried successfully");
+  } catch (err) {
+    assert("Test 35: Rate Limit V1 - Table check", false, err.message);
   }
 
   console.log("\n=== Integration Tests Completed ===");

@@ -1,6 +1,7 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { Address } from '@ton/core'
 import { getSessionUser } from '@/lib/auth-server'
+import { isRateLimited } from '@/lib/rate-limit'
 import { calculateTokenSaleIntent, DIAO_SALE_PACKAGE } from '@/lib/token-sale'
 import { DIAO_CONTRACTS } from '@/lib/ton-config'
 import { buildBuyPackagePayload } from '@/lib/ton-payload'
@@ -80,6 +81,14 @@ export async function POST(request: Request) {
     } catch {}
     const env = (context?.env || {}) as CloudflareEnv
     const db = env.DB
+    
+    // Rate limit check
+    if (await isRateLimited(request, db, { route: '/api/token-sale/intent', limit: 10, walletAddress: typeof walletAddress === 'string' ? walletAddress : undefined })) {
+      return new Response(JSON.stringify({ error: 'Too many requests.' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
     const isProd = process.env.NODE_ENV === 'production'
 
     if (!db && isProd) {

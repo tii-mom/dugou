@@ -53,9 +53,9 @@ Current Branch: `codex/diao-p0-p1-verification-hardening`
 2. **整型 Nano Ledger 映射**
    - 在 D1 迁移中新增了 `total_ton_nano` 和 `paid_ton_nano` 列。
    - 写入逻辑已在接口层面完全实现，且能够向前兼容旧版数据库，规避 SQLite `REAL` 的浮点数精度截断问题。
-3. **速率限制/滥用防护方案（未实现 / P1 pending）**
-   - **状态**：目前仅完成方案设计，尚未在生产路由中实际编码引入。
-   - **设计方案**：
+3. **速率限制/滥用防护方案（已在 Staging Readiness V2 中实现）**
+   - **状态**：Rate Limit V1 已完全实现。
+   - **设计实现**：
      - 新建 D1 数据表 `diao_rate_limit` (`ip_or_user TEXT PRIMARY KEY, window_start INTEGER, request_count INTEGER`)。
      - 在 `/api/auth/telegram`、`/api/token-sale/intent` 等高敏感 API 入口编写拦截中间件：每 1 分钟/每用户/IP 限制 20 次请求。
      - 触发后直接返回 `429 Too Many Requests`，Fail-closed 保护。

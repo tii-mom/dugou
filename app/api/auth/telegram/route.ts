@@ -1,5 +1,6 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { verifyTelegramHash } from '@/lib/auth-server'
+import { isRateLimited } from '@/lib/rate-limit'
 
 export const runtime = 'edge'
 
@@ -49,6 +50,14 @@ export async function POST(request: Request) {
       context = getRequestContext()
     } catch {}
     const env = (context?.env || {}) as unknown as AuthEnv
+    
+    // Rate limit check
+    if (await isRateLimited(request, env.DB, { route: '/api/auth/telegram', limit: 10 })) {
+      return new Response(JSON.stringify({ error: 'Too many requests.' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
     const botTokenKey = 'TELEGRAM_' + 'BOT_' + 'TOKEN'
     const maxAgeKey = 'TELEGRAM_' + 'INITDATA_' + 'MAX_AGE_SECONDS'
     const botToken = envString(env, botTokenKey) || processEnvString(botTokenKey)

@@ -1,5 +1,6 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { getSessionUser } from '@/lib/auth-server'
+import { isRateLimited } from '@/lib/rate-limit'
 
 export const runtime = 'edge'
 
@@ -21,6 +22,14 @@ export async function PUT(request: Request) {
     } catch {}
     const env = (context?.env || {}) as CloudflareEnv
     const db = env.DB
+    
+    // Rate limit check
+    if (await isRateLimited(request, db, { route: '/api/loss-proofs/upload', limit: 10 })) {
+      return new Response(JSON.stringify({ error: 'Too many requests.' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
     const r2 = env.LOSS_PROOFS
     const isProd = process.env.NODE_ENV === 'production' || Boolean(db)
 
