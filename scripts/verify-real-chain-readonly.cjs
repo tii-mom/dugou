@@ -13,7 +13,12 @@ async function runSmokeTest() {
   const vestingAddressStr = process.env.DIAO_VESTING_ADDRESS || '';
   const minterAddressStr = process.env.DIAO_JETTON_MINTER_ADDRESS || '';
   const apiBaseUrl = process.env.TON_API_BASE_URL || 'https://toncenter.com/api/v2/jsonRPC';
-  const apiKey = process.env.TON_API_KEY || '';
+  const apiKey = process.env.TONCENTER_API_KEY || process.env.TON_API_KEY || '';
+  const apiKeySource = process.env.TONCENTER_API_KEY
+    ? 'TONCENTER_API_KEY'
+    : process.env.TON_API_KEY
+      ? 'TON_API_KEY'
+      : 'none';
 
   if (!vestingAddressStr) {
     console.error("❌ ERROR: Missing required env variable DIAO_VESTING_ADDRESS.");
@@ -44,7 +49,7 @@ async function runSmokeTest() {
   }
 
   // Initialize TON client
-  console.log(`Connecting to TON RPC endpoint: ${apiBaseUrl} (API Key: ${apiKey ? '***PRESENT***' : 'NONE'})`);
+  console.log(`Connecting to TON RPC endpoint: ${apiBaseUrl} (API Key Source: ${apiKeySource}, API Key: ${apiKey ? '***PRESENT***' : 'NONE'})`);
   const client = new TonClient({
     endpoint: apiBaseUrl,
     apiKey: apiKey || undefined,

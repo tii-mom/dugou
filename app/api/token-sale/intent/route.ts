@@ -7,6 +7,15 @@ import { DIAO_CONTRACTS } from '@/lib/ton-config'
 import { buildBuyPackagePayload } from '@/lib/ton-payload'
 import { getUserPackages } from '@/lib/ton-chain-client'
 
+function isMissingColumnError(message: string, columnName: string) {
+  const normalized = message.toLowerCase()
+  const normalizedColumn = columnName.toLowerCase()
+  return (
+    normalized.includes(normalizedColumn) &&
+    (normalized.includes('no such column') || normalized.includes('has no column named'))
+  )
+}
+
 export const runtime = 'edge'
 
 type RequestBody = {
@@ -197,7 +206,7 @@ export async function POST(request: Request) {
           .run()
       } catch (insertError) {
         const message = insertError instanceof Error ? insertError.message : String(insertError)
-        if (message.toLowerCase().includes('column')) {
+        if (isMissingColumnError(message, 'total_ton_nano')) {
           await db
             .prepare(
               `INSERT INTO diao_sale_intents (id, user_id, wallet_address, packages, total_ton, immediate_diao, locked_diao, per_round_diao, status, created_at, updated_at, query_id, expected_amount_nano, expires_at)

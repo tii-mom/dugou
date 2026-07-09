@@ -4,6 +4,15 @@ import { findBuyPackageTransaction, getUserPackages } from '@/lib/ton-chain-clie
 import { isRateLimited } from '@/lib/rate-limit'
 import { DIAO_TOKENOMICS } from '@/lib/ton-config'
 
+function isMissingColumnError(message: string, columnName: string) {
+  const normalized = message.toLowerCase()
+  const normalizedColumn = columnName.toLowerCase()
+  return (
+    normalized.includes(normalizedColumn) &&
+    (normalized.includes('no such column') || normalized.includes('has no column named'))
+  )
+}
+
 export const runtime = 'edge'
 
 async function confirmIntent(request: Request, intentId: string) {
@@ -156,7 +165,7 @@ async function confirmIntent(request: Request, intentId: string) {
       ).bind(purchaseId, user.id, walletAddress, tx.hash, packages, paidTon, immediateDiao, lockedDiao, totalDiao, nowIso, nowIso, paidTonNano).run()
     } catch (insertError) {
       const message = insertError instanceof Error ? insertError.message : String(insertError)
-      if (message.toLowerCase().includes('column')) {
+      if (isMissingColumnError(message, 'paid_ton_nano')) {
         await db.prepare(
           `INSERT INTO diao_purchases (id, user_id, wallet_address, tx_hash, package_count, paid_ton, immediate_diao, locked_diao, total_diao, highest_claimed_round, status, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'confirmed', ?, ?)`
