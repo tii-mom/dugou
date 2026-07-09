@@ -1,8 +1,10 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
+import { Address } from '@ton/core'
 import { getSessionUser } from '@/lib/auth-server'
 import { calculateTokenSaleIntent, DIAO_SALE_PACKAGE } from '@/lib/token-sale'
 import { DIAO_CONTRACTS } from '@/lib/ton-config'
 import { buildBuyPackagePayload } from '@/lib/ton-payload'
+import { getUserPackages } from '@/lib/ton-chain-client'
 
 export const runtime = 'edge'
 
@@ -20,6 +22,15 @@ function generateSecureQueryId(): string {
   // Ensure a positive 63-bit BigInt to be safe on-chain
   const queryIdBig = ((BigInt(high) & BigInt(0x7fffffff)) << BigInt(32)) | BigInt(low)
   return queryIdBig.toString()
+}
+
+function isValidTonAddress(address: string): boolean {
+  try {
+    Address.parse(address)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export async function POST(request: Request) {
@@ -44,6 +55,13 @@ export async function POST(request: Request) {
       })
     }
 
+    if (!isValidTonAddress(walletAddress)) {
+      return new Response(JSON.stringify({ error: 'Invalid TON wallet address.' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
     if (!Number.isInteger(packages) || packages < 1 || packages > DIAO_SALE_PACKAGE.maxPackagesPerWallet) {
       return new Response(
         JSON.stringify({
@@ -62,6 +80,14 @@ export async function POST(request: Request) {
     } catch {}
     const env = (context?.env || {}) as CloudflareEnv
     const db = env.DB
+    const isProd = process.env.NODE_ENV === 'production'
+
+    if (!db && isProd) {
+      return new Response(JSON.stringify({ error: 'D1 DB binding is not configured. Server refuses demo purchase intents in production.' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
 
     let userId = 'mock-user-id'
     let isDemo = true
@@ -99,10 +125,12 @@ export async function POST(request: Request) {
         .first()
 
       const existingPackages = row?.total ? Number(row.total) : 0
-      if (existingPackages + packages > 10) {
+      const chainPackages = await getUserPackages(env, walletAddress)
+      const activePackages = Math.max(existingPackages, chainPackages.packageCount)
+      if (activePackages + packages > DIAO_SALE_PACKAGE.maxPackagesPerWallet) {
         return new Response(
           JSON.stringify({
-            error: `累积购买额度已达上限。您当前已购买或待处理 ${existingPackages} 份，本次最多还能购买 ${10 - existingPackages} 份。`,
+            error: `累积购买额度已达上限。您当前已购买或待处理 ${activePackages} 份，本次最多还能购买 ${DIAO_SALE_PACKAGE.maxPackagesPerWallet - activePackages} 份。`,
           }),
           {
             status: 400,
@@ -134,28 +162,66 @@ export async function POST(request: Request) {
     const message = '已创建购买意向，等待钱包签名。'
 
     if (db) {
-      await db
-        .prepare(
-          `INSERT INTO diao_sale_intents (id, user_id, wallet_address, packages, total_ton, immediate_diao, locked_diao, per_round_diao, status, created_at, updated_at, query_id, expected_amount_nano, expires_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .bind(
-          intentId,
-          userId,
-          walletAddress,
-          packages,
-          totals.totalTon,
-          totals.immediateDIAO,
-          totals.lockedDIAO,
-          totals.perRoundDIAO,
-          finalStatus,
-          nowIso,
-          nowIso,
-          queryId,
-          expectedAmountNano,
-          expiresIso
-        )
-        .run()
+      try {
+        await db
+          .prepare(
+            `INSERT INTO diao_sale_intents (id, user_id, wallet_address, packages, total_ton, immediate_diao, locked_diao, per_round_diao, status, created_at, updated_at, query_id, expected_amount_nano, expires_at, total_ton_nano)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .bind(
+            intentId,
+            userId,
+            walletAddress,
+            packages,
+            totals.totalTon,
+            totals.immediateDIAO,
+            totals.lockedDIAO,
+            totals.perRoundDIAO,
+            finalStatus,
+            nowIso,
+            nowIso,
+            queryId,
+            expectedAmountNano,
+            expiresIso,
+            expectedAmountNano
+          )
+          .run()
+      } catch (insertError) {
+        const message = insertError instanceof Error ? insertError.message : String(insertError)
+        if (message.toLowerCase().includes('column')) {
+          await db
+            .prepare(
+              `INSERT INTO diao_sale_intents (id, user_id, wallet_address, packages, total_ton, immediate_diao, locked_diao, per_round_diao, status, created_at, updated_at, query_id, expected_amount_nano, expires_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            )
+            .bind(
+              intentId,
+              userId,
+              walletAddress,
+              packages,
+              totals.totalTon,
+              totals.immediateDIAO,
+              totals.lockedDIAO,
+              totals.perRoundDIAO,
+              finalStatus,
+              nowIso,
+              nowIso,
+              queryId,
+              expectedAmountNano,
+              expiresIso
+            )
+            .run()
+        } else if (message.toLowerCase().includes('unique')) {
+          return new Response(JSON.stringify({
+            error: '已有进行中的购买意向，请先完成、取消或等待过期后再创建新的购买意向。',
+          }), {
+            status: 409,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        } else {
+          throw insertError
+        }
+      }
     }
 
     return new Response(

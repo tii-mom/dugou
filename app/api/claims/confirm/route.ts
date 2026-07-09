@@ -11,9 +11,16 @@ async function confirmClaim(request: Request, claimId: string) {
   } catch {}
   const env = (context?.env || {}) as CloudflareEnv
   const db = env.DB
+  const isProd = process.env.NODE_ENV === 'production'
 
   if (!db) {
-    // Demo mode: mock confirm
+    if (isProd) {
+      return new Response(JSON.stringify({ error: 'D1 DB binding is not configured. Server refuses mock claim confirmation in production.' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    // Demo mode: local-only mock confirm
     return new Response(JSON.stringify({
       status: 'confirmed',
       claim: {
@@ -74,18 +81,48 @@ async function confirmClaim(request: Request, claimId: string) {
   if (tx) {
     const requestedRound = Number(claim.requested_round)
 
-    // 1. Update claim record status to confirmed first
+    const duplicateClaim = await db.prepare(
+      "SELECT id FROM diao_claims WHERE chain_tx_hash = ? AND id != ? AND status = 'confirmed'"
+    ).bind(tx.hash, claimId).first()
+
+    if (duplicateClaim) {
+      await db.prepare(
+        "UPDATE diao_claims SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?"
+      ).bind('领取交易 Hash 已被其他领取单录入。', nowIso, claimId).run()
+
+      return new Response(JSON.stringify({
+        status: 'failed',
+        error: 'Claim transaction hash has already been used.',
+        message: '核验失败：领取交易已被使用。'
+      }), { status: 409, headers: { 'Content-Type': 'application/json' } })
+    }
+
+    let highestClaimedRound = requestedRound
+    const chainMode = (env as unknown as { CHAIN_INDEXER_MODE?: string }).CHAIN_INDEXER_MODE || process.env.CHAIN_INDEXER_MODE || ''
+    if (chainMode !== 'mock') {
+      const chainPackages = await getUserPackages(env, String(claim.wallet_address))
+      highestClaimedRound = chainPackages.highestClaimedRound
+      if (highestClaimedRound < requestedRound) {
+        await db.prepare(
+          "UPDATE diao_claims SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?"
+        ).bind('链上领取交易已找到，但合约最高领取轮次未同步增加。', nowIso, claimId).run()
+
+        return new Response(JSON.stringify({
+          status: 'failed',
+          error: 'On-chain claim state mismatch.',
+          message: '核验失败：交易存在，但合约领取轮次未达到预期。'
+        }), { status: 409, headers: { 'Content-Type': 'application/json' } })
+      }
+    }
+
+    // 1. Update claim record after chain-state verification
     await db.prepare(
       `UPDATE diao_claims
        SET status = 'confirmed', confirmed_highest_claimed_round = ?, chain_tx_hash = ?, chain_lt = ?, confirmed_at = ?, updated_at = ?
        WHERE id = ?`
-    ).bind(requestedRound, tx.hash, tx.lt, nowIso, nowIso, claimId).run()
+    ).bind(highestClaimedRound, tx.hash, tx.lt, nowIso, nowIso, claimId).run()
 
-    // 2. Get user packages state on-chain
-    const chainPackages = await getUserPackages(env, String(claim.wallet_address))
-    const highestClaimedRound = chainPackages.highestClaimedRound
-
-    // 3. Sync local purchases ledger highestClaimedRound
+    // 2. Sync local purchases ledger highestClaimedRound
     await db.prepare(
       "UPDATE diao_purchases SET highest_claimed_round = ?, updated_at = ? WHERE user_id = ? AND wallet_address = ?"
     ).bind(highestClaimedRound, nowIso, user.id, String(claim.wallet_address)).run()

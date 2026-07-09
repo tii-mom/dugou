@@ -31,6 +31,14 @@ export async function POST(request: Request) {
     const env = (context?.env || {}) as CloudflareEnv
     const db = env.DB
     const r2 = env.LOSS_PROOFS
+    const isProd = process.env.NODE_ENV === 'production' || Boolean(db)
+
+    if (!r2 && isProd) {
+      return new Response(JSON.stringify({ error: 'R2 bucket is not configured. Server refuses submits in production.' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
     const ai = env.AI
 
     let userId = 'mock-user-id'

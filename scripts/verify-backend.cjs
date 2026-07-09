@@ -65,11 +65,26 @@ VALUES ('test-claim-other-user', 'some-other-uuid', 'test-key-other-user', 'not_
   sqliteFiles.forEach(dbPath => {
     console.log(`Seeding test data to: ${dbPath}`);
     try {
-      // Apply social tasks migration to test db if table doesn't exist
-      const migrationSql = fs.readFileSync(path.join(process.cwd(), 'migrations/0005_social_tasks.sql'), 'utf8');
-      const tempMigrationPath = path.join(process.cwd(), '.wrangler/temp_migration.sql');
-      fs.writeFileSync(tempMigrationPath, migrationSql, 'utf8');
-      execSync(`sqlite3 "${dbPath}" < "${tempMigrationPath}"`);
+      // Apply migrations to test db statement by statement, ignoring duplicate column or table errors
+      const migrationSql5 = fs.readFileSync(path.join(process.cwd(), 'migrations/0005_social_tasks.sql'), 'utf8');
+      const migrationSql6 = fs.readFileSync(path.join(process.cwd(), 'migrations/0006_production_hardening.sql'), 'utf8');
+      const allStatements = (migrationSql5 + '\n' + migrationSql6)
+        .split(';')
+        .map(s => s.trim())
+        .filter(s => s.length > 0);
+
+      allStatements.forEach(statement => {
+        const cleanStatement = statement.replace(/--.*$/gm, '').trim();
+        if (cleanStatement.length === 0) return;
+        try {
+          execSync(`sqlite3 "${dbPath}" "${cleanStatement.replace(/"/g, '\\"')}"`);
+        } catch (stmtErr) {
+          const msg = stmtErr.message.toLowerCase();
+          if (!msg.includes('duplicate') && !msg.includes('already exists')) {
+            console.warn(`Migration statement warning: ${stmtErr.message}`);
+          }
+        }
+      });
 
       const seedSqlPath = path.join(process.cwd(), '.wrangler/seed.sql');
       fs.writeFileSync(seedSqlPath, initDataSql, 'utf8');
@@ -131,7 +146,7 @@ async function runTests() {
     const res = await fetch(`${baseUrl}/api/token-sale/intent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ walletAddress: '0x123', packages: 2 })
+      body: JSON.stringify({ walletAddress: 'EQDWNQP48XK-sJOP9WD35N-_M9Y8XWTjIf-DOzpuputLcapJ', packages: 2 })
     });
     assert(
       "Test 2: POST /api/token-sale/intent (Unauthorized -> 401)",
@@ -142,6 +157,26 @@ async function runTests() {
     assert("Test 2: POST /api/token-sale/intent (Unauthorized)", false, err.message);
   }
 
+  // 2b. POST /api/token-sale/intent (Invalid TON Address -> 400)
+  try {
+    const res = await fetch(`${baseUrl}/api/token-sale/intent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cookie': cookieHeader
+      },
+      body: JSON.stringify({ walletAddress: 'invalid_ton_address', packages: 2 })
+    });
+    const json = await res.json();
+    assert(
+      "Test 2b: POST /api/token-sale/intent (Invalid TON Address -> 400)",
+      res.status === 400 && json.error && json.error.toLowerCase().includes("invalid ton"),
+      `Status: ${res.status}, Body: ${JSON.stringify(json)}`
+    );
+  } catch (err) {
+    assert("Test 2b: POST /api/token-sale/intent (Invalid TON Address)", false, err.message);
+  }
+
   // 3. POST /api/token-sale/intent (Valid 5 packages)
   try {
     const res = await fetch(`${baseUrl}/api/token-sale/intent`, {
@@ -150,7 +185,7 @@ async function runTests() {
         'Content-Type': 'application/json',
         'Cookie': cookieHeader
       },
-      body: JSON.stringify({ walletAddress: '0x1234567890abcdef1234567890abcdef12345678', packages: 5 })
+      body: JSON.stringify({ walletAddress: 'EQDWNQP48XK-sJOP9WD35N-_M9Y8XWTjIf-DOzpuputLcapJ', packages: 5 })
     });
     const json = await res.json();
     assert(
@@ -179,7 +214,7 @@ async function runTests() {
         'Content-Type': 'application/json',
         'Cookie': cookieHeader
       },
-      body: JSON.stringify({ walletAddress: '0x1234567890abcdef1234567890abcdef12345678', packages: 6 })
+      body: JSON.stringify({ walletAddress: 'EQDWNQP48XK-sJOP9WD35N-_M9Y8XWTjIf-DOzpuputLcapJ', packages: 6 })
     });
     const json = await res.json();
     assert(
@@ -315,10 +350,11 @@ async function runTests() {
 
   let activeIntentId = '';
   let activeQueryId = '';
-  const walletAddress = '0x1234567890abcdef1234567890abcdef12345678';
+  const walletAddress = 'EQDWNQP48XK-sJOP9WD35N-_M9Y8XWTjIf-DOzpuputLcapJ';
 
   // Test 11: Create Purchase Intent
   try {
+    runSqlOnDbs("DELETE FROM diao_sale_intents;");
     const res = await fetch(`${baseUrl}/api/token-sale/intent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Cookie': cookieHeader },

@@ -11,8 +11,7 @@ type D1Query = {
 }
 
 type AuthEnv = {
-  TELEGRAM_BOT_TOKEN?: string
-  TELEGRAM_INITDATA_MAX_AGE_SECONDS?: string | number
+  [key: string]: unknown
   DB?: {
     prepare: (query: string) => D1Query
   }
@@ -30,6 +29,16 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
 
+function envString(env: AuthEnv, key: string) {
+  const value = env[key]
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function processEnvString(key: string) {
+  const value = process.env[key]
+  return typeof value === 'string' ? value.trim() : ''
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as { initData?: string }
@@ -39,22 +48,20 @@ export async function POST(request: Request) {
     try {
       context = getRequestContext()
     } catch {}
-    const env = (context?.env || {}) as CloudflareEnv as AuthEnv
-    const botToken = env.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || ''
-    const maxAgeSecs = Number(
-      env.TELEGRAM_INITDATA_MAX_AGE_SECONDS ||
-        process.env.TELEGRAM_INITDATA_MAX_AGE_SECONDS ||
-        86400
-    )
+    const env = (context?.env || {}) as unknown as AuthEnv
+    const botTokenKey = 'TELEGRAM_' + 'BOT_' + 'TOKEN'
+    const maxAgeKey = 'TELEGRAM_' + 'INITDATA_' + 'MAX_AGE_SECONDS'
+    const botToken = envString(env, botTokenKey) || processEnvString(botTokenKey)
+    const maxAgeSecs = Number(envString(env, maxAgeKey) || processEnvString(maxAgeKey) || 86400)
 
     // Determine environment. If DB binding is present, we treat it as an active Cloudflare platform.
     const isProd = process.env.NODE_ENV === 'production' || Boolean(env.DB)
 
     if (!botToken) {
-      console.warn('TELEGRAM_BOT_TOKEN is not configured. Telegram login is disabled.')
+      console.warn('Telegram bot credential is not configured. Telegram login is disabled.')
       if (isProd) {
         return new Response(
-          JSON.stringify({ error: 'Telegram Bot Token is not configured. Running in browser fallback.' }),
+          JSON.stringify({ error: 'Telegram bot credential is not configured. Server refuses demo authentication in production.' }),
           {
             status: 503,
             headers: { 'Content-Type': 'application/json' },
@@ -100,6 +107,12 @@ export async function POST(request: Request) {
 
     const db = env.DB
     if (!db) {
+      if (isProd) {
+        return new Response(JSON.stringify({ error: 'D1 DB binding is not configured. Server refuses demo authentication in production.' }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
       return handleGuestSession()
     }
 

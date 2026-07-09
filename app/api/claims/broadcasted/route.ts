@@ -42,9 +42,16 @@ export async function POST(request: Request) {
     } catch {}
     const env = (context?.env || {}) as CloudflareEnv
     const db = env.DB
+    const isProd = process.env.NODE_ENV === 'production'
 
     if (!db) {
-      return new Response(JSON.stringify({ success: true, message: 'Demo mode mock claim broadcast.' }), {
+      if (isProd) {
+        return new Response(JSON.stringify({ error: 'D1 DB binding is not configured. Server refuses mock claim broadcast in production.' }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return new Response(JSON.stringify({ success: true, message: 'Demo mode local mock claim broadcast.' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })

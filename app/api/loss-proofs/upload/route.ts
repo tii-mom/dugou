@@ -22,6 +22,14 @@ export async function PUT(request: Request) {
     const env = (context?.env || {}) as CloudflareEnv
     const db = env.DB
     const r2 = env.LOSS_PROOFS
+    const isProd = process.env.NODE_ENV === 'production' || Boolean(db)
+
+    if (!r2 && isProd) {
+      return new Response(JSON.stringify({ error: 'R2 bucket is not configured. Server refuses uploads in production.' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
 
     let userId = 'mock-user-id'
     let claim: {

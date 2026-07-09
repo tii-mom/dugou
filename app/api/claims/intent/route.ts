@@ -1,4 +1,5 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
+import { Address } from '@ton/core'
 import { getSessionUser } from '@/lib/auth-server'
 import { getUserPackages, getVestingData } from '@/lib/ton-chain-client'
 import { buildClaimBuyerPayload } from '@/lib/ton-payload'
@@ -20,6 +21,15 @@ function generateSecureQueryId(): string {
   return queryIdBig.toString()
 }
 
+function isValidTonAddress(address: string): boolean {
+  try {
+    Address.parse(address)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function POST(request: Request) {
   try {
     let body: RequestBody
@@ -39,12 +49,25 @@ export async function POST(request: Request) {
       })
     }
 
+    if (!isValidTonAddress(walletAddress)) {
+      return new Response(JSON.stringify({ error: 'Invalid TON wallet address.' }), {
+        status: 400, headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
     let context
     try {
       context = getRequestContext()
     } catch {}
     const env = (context?.env || {}) as CloudflareEnv
     const db = env.DB
+    const isProd = process.env.NODE_ENV === 'production'
+
+    if (!db && isProd) {
+      return new Response(JSON.stringify({ error: 'D1 DB binding is not configured. Server refuses demo claim intents in production.' }), {
+        status: 503, headers: { 'Content-Type': 'application/json' },
+      })
+    }
 
     let userId = 'mock-user-id'
     let isDemo = true

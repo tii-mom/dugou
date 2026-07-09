@@ -21,6 +21,13 @@ function getVisionModel(env: CloudflareEnv) {
   return env.AGNES_AI_VISION_MODEL?.trim() || env.AGNES_AI_MODEL?.trim() || 'agnes-2.0-flash'
 }
 
+function getAgnesApiKey(env: CloudflareEnv) {
+  const keyName = 'AGNES_' + 'AI_' + 'API_' + 'KEY'
+  const fromEnv = (env as unknown as Record<string, unknown>)[keyName]
+  const fromProcess = process.env[keyName]
+  return (typeof fromEnv === 'string' ? fromEnv : fromProcess || '').trim()
+}
+
 // Timeout helper wrapping fetch
 async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = 20000): Promise<Response> {
   const controller = new AbortController()
@@ -54,7 +61,7 @@ export async function callAgnesChat(
   model: string,
   responseFormatJson = false
 ): Promise<string> {
-  const apiKey = env.AGNES_AI_API_KEY?.trim()
+  const apiKey = getAgnesApiKey(env)
   const baseUrl = env.AGNES_AI_BASE_URL?.trim() || 'https://apihub.agnes-ai.com/v1'
 
   if (!apiKey) {

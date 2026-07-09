@@ -1,6 +1,6 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { getSessionUser } from '@/lib/auth-server'
-import { findBuyPackageTransaction } from '@/lib/ton-chain-client'
+import { findBuyPackageTransaction, getUserPackages } from '@/lib/ton-chain-client'
 import { DIAO_TOKENOMICS } from '@/lib/ton-config'
 
 export const runtime = 'edge'
@@ -12,9 +12,16 @@ async function confirmIntent(request: Request, intentId: string) {
   } catch {}
   const env = (context?.env || {}) as CloudflareEnv
   const db = env.DB
+  const isProd = process.env.NODE_ENV === 'production'
 
   if (!db) {
-    // Demo mode: mock confirm
+    if (isProd) {
+      return new Response(JSON.stringify({ error: 'D1 DB binding is not configured. Server refuses mock purchase confirmation in production.' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    // Demo mode: local-only mock confirm
     return new Response(JSON.stringify({
       status: 'confirmed',
       purchase: {
@@ -108,17 +115,57 @@ async function confirmIntent(request: Request, intentId: string) {
       }), { status: 409, headers: { 'Content-Type': 'application/json' } })
     }
 
+    const chainMode = (env as unknown as { CHAIN_INDEXER_MODE?: string }).CHAIN_INDEXER_MODE || process.env.CHAIN_INDEXER_MODE || ''
+    if (chainMode !== 'mock') {
+      const chainPackages = await getUserPackages(env, walletAddress)
+      if (chainPackages.packageCount < packages) {
+        await db.prepare(
+          "UPDATE diao_sale_intents SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?"
+        ).bind('链上交易已找到，但合约用户购买额度未同步增加。', nowIso, intentId).run()
+
+        return new Response(JSON.stringify({
+          status: 'failed',
+          error: 'On-chain package state mismatch.',
+          message: '核验失败：交易存在，但合约购买额度未达到预期。'
+        }), { status: 409, headers: { 'Content-Type': 'application/json' } })
+      }
+    }
+
     const purchaseId = `purchase-${crypto.randomUUID()}`
     const paidTon = packages * DIAO_TOKENOMICS.packagePriceTon // Only record sale amount (no buffer!)
     const immediateDiao = packages * DIAO_TOKENOMICS.immediatePerPackage
     const lockedDiao = packages * DIAO_TOKENOMICS.lockedPerPackage
     const totalDiao = packages * DIAO_TOKENOMICS.totalPerPackage
 
+    const paidTonNano = String(BigInt(packages) * BigInt(Math.round(DIAO_TOKENOMICS.packagePriceTon * 1e9)))
+
     // Write confirmed purchase ledger
-    await db.prepare(
-      `INSERT INTO diao_purchases (id, user_id, wallet_address, tx_hash, package_count, paid_ton, immediate_diao, locked_diao, total_diao, highest_claimed_round, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'confirmed', ?, ?)`
-    ).bind(purchaseId, user.id, walletAddress, tx.hash, packages, paidTon, immediateDiao, lockedDiao, totalDiao, nowIso, nowIso).run()
+    try {
+      await db.prepare(
+        `INSERT INTO diao_purchases (id, user_id, wallet_address, tx_hash, package_count, paid_ton, immediate_diao, locked_diao, total_diao, highest_claimed_round, status, created_at, updated_at, paid_ton_nano)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'confirmed', ?, ?, ?)`
+      ).bind(purchaseId, user.id, walletAddress, tx.hash, packages, paidTon, immediateDiao, lockedDiao, totalDiao, nowIso, nowIso, paidTonNano).run()
+    } catch (insertError) {
+      const message = insertError instanceof Error ? insertError.message : String(insertError)
+      if (message.toLowerCase().includes('column')) {
+        await db.prepare(
+          `INSERT INTO diao_purchases (id, user_id, wallet_address, tx_hash, package_count, paid_ton, immediate_diao, locked_diao, total_diao, highest_claimed_round, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'confirmed', ?, ?)`
+        ).bind(purchaseId, user.id, walletAddress, tx.hash, packages, paidTon, immediateDiao, lockedDiao, totalDiao, nowIso, nowIso).run()
+      } else if (message.toLowerCase().includes('unique')) {
+        await db.prepare(
+          "UPDATE diao_sale_intents SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?"
+        ).bind('交易 Hash 已被其他购买单录入。', nowIso, intentId).run()
+
+        return new Response(JSON.stringify({
+          status: 'failed',
+          error: '交易哈希已被录入过。',
+          message: '核验失败：交易已被使用。'
+        }), { status: 409, headers: { 'Content-Type': 'application/json' } })
+      } else {
+        throw insertError
+      }
+    }
 
     // Update intent
     await db.prepare(
