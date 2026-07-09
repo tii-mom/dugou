@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { Award, Dices, Hourglass, Lock, Medal, TrendingDown, Trophy } from 'lucide-react'
-import { badges, lossLeaderboard, speedLeaderboard } from '@/lib/mock-data'
+
+import { getBusinessService } from '@/lib/services'
 
 const rarityStyle: Record<string, string> = {
   普通: 'border-border text-muted-foreground',
@@ -10,7 +11,7 @@ const rarityStyle: Record<string, string> = {
   传说: 'border-primary/70 text-primary',
 }
 
-const wheelPrizes = ['+88 D', '连胜保护卡', '+12 D', '稀有头像框', '+520 D', '再接再厉']
+const honor = getBusinessService().getHonorSnapshot()
 
 function useCountdown() {
   const [seconds, setSeconds] = useState(71 * 3600 + 42 * 60 + 18)
@@ -25,15 +26,17 @@ function useCountdown() {
 }
 
 export function Honor() {
+  const [streakShield, setStreakShield] = useState(false)
   const [board, setBoard] = useState<'loss' | 'speed'>('loss')
   const [spinning, setSpinning] = useState(false)
   const [prize, setPrize] = useState<string | null>(null)
   const [flashIdx, setFlashIdx] = useState(0)
+  const [spinAttempts, setSpinAttempts] = useState(0)
   const countdown = useCountdown()
 
   useEffect(() => {
     if (!spinning) return
-    const t = setInterval(() => setFlashIdx((i) => (i + 1) % wheelPrizes.length), 120)
+    const t = setInterval(() => setFlashIdx((i) => (i + 1) % honor.wheelPrizes.length), 120)
     return () => clearInterval(t)
   }, [spinning])
 
@@ -41,8 +44,13 @@ export function Honor() {
     if (spinning || prize) return
     setSpinning(true)
     setTimeout(() => {
-      setPrize(wheelPrizes[Math.floor(Math.random() * wheelPrizes.length)])
+      const p = getBusinessService().getWheelPrize(spinAttempts)
+      setPrize(p)
+      setSpinAttempts((count) => count + 1)
       setSpinning(false)
+      if (p.startsWith('连胜保护卡')) {
+        setStreakShield(true)
+      }
     }, 1600)
   }
 
@@ -50,7 +58,7 @@ export function Honor() {
     <div className="page-fade flex flex-col gap-6 px-5 pb-28 pt-5">
       <header className="flex flex-col gap-1">
         <h1 className="text-xl font-bold">荣誉室</h1>
-        <p className="text-xs text-muted-foreground">S1 赛季 · 「首季幸存者」限定勋章开放中</p>
+        <p className="text-xs text-muted-foreground">S1 赛季演示 · 真实赛季和勋章发放待接入</p>
       </header>
 
       {/* 赛季冲刺 */}
@@ -61,9 +69,20 @@ export function Honor() {
         </div>
         <div className="flex flex-col items-end">
           <span className="font-mono text-lg font-bold text-destructive">{countdown}</span>
-          <span className="text-[10px] text-primary">双倍开箱概率已开启</span>
+          <span className="text-[10px] text-primary">演示倒计时 · 真实赛季接口待接入</span>
         </div>
       </section>
+
+      {/* 连胜保护卡拥有状态 */}
+      {streakShield && (
+        <section className="flex items-center justify-between rounded-2xl border border-primary bg-primary/10 px-4 py-3 animate-pulse">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-xs font-bold text-primary">已激活「连胜保护卡」（演示）</span>
+            <span className="text-[10px] text-muted-foreground">下一次断连将自动消耗此卡，保护天数不归零。</span>
+          </div>
+          <span className="text-[10px] font-mono text-primary bg-primary/20 px-2 py-0.5 rounded border border-primary/35">ACTIVE</span>
+        </section>
+      )}
 
       {/* 勋章陈列 */}
       <section className="flex flex-col gap-3">
@@ -72,7 +91,7 @@ export function Honor() {
           勋章陈列
         </h2>
         <div className="grid grid-cols-2 gap-3">
-          {badges.map((b) => (
+          {honor.badges.map((b) => (
             <div
               key={b.name}
               className={`flex flex-col gap-2 rounded-2xl border bg-card p-4 ${rarityStyle[b.rarity]} ${
@@ -111,11 +130,11 @@ export function Honor() {
             }`}
           >
             <Trophy className="size-3.5" aria-hidden="true" />
-            回本速度榜
+            目标达成榜
           </button>
         </div>
         <ol className="flex flex-col gap-2">
-          {(board === 'loss' ? lossLeaderboard : speedLeaderboard).map((row) => (
+          {(board === 'loss' ? honor.lossLeaderboard : honor.speedLeaderboard).map((row) => (
             <li key={row.rank} className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3">
               <div className="flex items-center gap-3">
                 <span className={`font-mono text-sm font-bold ${row.rank <= 3 ? 'text-primary' : 'text-muted-foreground'}`}>
@@ -126,30 +145,35 @@ export function Honor() {
               {'amount' in row ? (
                 <span className="font-mono text-sm font-bold text-destructive">-${row.amount.toLocaleString()}</span>
               ) : (
-                <span className="font-mono text-sm font-bold text-success">{row.days} 天回本</span>
+                <span className="font-mono text-sm font-bold text-success">{row.days} 天达成</span>
               )}
             </li>
           ))}
         </ol>
       </section>
 
-      {/* 命运转盘 */}
+      {/* 每日互动 */}
       <section className="evidence-card flex flex-col items-center gap-4 rounded-3xl p-6 text-center">
         <h2 className="flex items-center gap-2 text-sm font-bold">
           <Dices className={`size-4 text-primary ${spinning ? 'wheel-spin' : ''}`} aria-hidden="true" />
-          命运转盘 · 每日免费一次
+          每日互动 · 演示一次
         </h2>
         {spinning ? (
           <div className="flex h-8 items-center gap-2 overflow-hidden font-mono text-sm text-foreground" aria-hidden="true">
-            <span>{wheelPrizes[flashIdx]}</span>
+            <span>{honor.wheelPrizes[flashIdx]}</span>
           </div>
         ) : prize ? (
-          <p className="crit-burst font-mono text-2xl font-bold text-primary" aria-live="polite">
-            {prize}
-          </p>
+          <div className="flex flex-col gap-1 items-center">
+            <p className="crit-burst font-mono text-2xl font-bold text-primary" aria-live="polite">
+              {prize}
+            </p>
+            {prize.startsWith('连胜保护卡') && (
+              <span className="text-[10px] text-primary bg-primary/10 px-2 py-0.5 rounded border border-primary/30 mt-1">演示状态已装配，真实背包待接入</span>
+            )}
+          </div>
         ) : (
           <p className="text-xs leading-relaxed text-muted-foreground">
-            今天没存款也没关系，完成分享或邀请任务即可换取一次免费转盘机会。
+            这里展示每日互动流程；真实库存、权益和发放规则需后端接口确认。
           </p>
         )}
         <button
@@ -158,7 +182,7 @@ export function Honor() {
           disabled={spinning || !!prize}
           className="w-full rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-60"
         >
-          {spinning ? '命运旋转中…' : prize ? '今日机会已用完' : '转一次'}
+          {spinning ? '互动处理中…' : prize ? '今日演示已完成' : '体验一次'}
         </button>
       </section>
     </div>
