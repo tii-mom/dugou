@@ -34,8 +34,22 @@ ON diao_rate_limits(updated_at);
    - `/api/social-tasks/submit`: 20/min
    - `/api/admin/*`: 30/min
 4. **Behavior on Failure**:
-   - **Production**: Fail-closed (returns HTTP 429 if D1 query fails or DB binding is missing).
+   - **Production / Staging**: Fail-closed (returns HTTP 429 if D1 query fails or DB binding is missing).
    - **Local Dev**: Fail-open (allows requests to proceed if DB is not present to prevent blocking local development).
+
+### Operations and Maintenance SQL Examples
+Admin / DevOps can monitor and clean the rate limit table with the following SQL queries:
+```sql
+-- 1. View request counts grouped by route to audit traffic
+SELECT route, COUNT(*) AS windows, SUM(request_count) AS total_requests
+FROM diao_rate_limits
+GROUP BY route
+ORDER BY total_requests DESC;
+
+-- 2. Prune old rate limit history older than 7 days
+DELETE FROM diao_rate_limits
+WHERE updated_at < datetime('now', '-7 days');
+```
 
 ---
 
@@ -48,12 +62,24 @@ We created a secure, read-only validation script (`scripts/verify-real-chain-rea
 pnpm verify:real-chain:readonly
 ```
 
-### Design Constraints
-1. **Read-Only**: It does not construct or send mutating transactions.
+### Environment Variables
+Configure the following variables in the environment to check status against a real chain:
+```bash
+CHAIN_INDEXER_MODE=real
+DIAO_VESTING_ADDRESS=EQ...               # Vesting contract address
+DIAO_JETTON_MINTER_ADDRESS=EQ...        # Jetton Minter contract address
+TONCENTER_API_KEY=xxx...                 # (Recommended) API key for toncenter
+TON_API_KEY=xxx...                       # (Fallback) API key for toncenter if TONCENTER_API_KEY is not defined
+REAL_CHAIN_TEST_WALLET=EQ...             # (Optional) Test user wallet address to check packages
+```
+
+### Design & Security Constraints
+1. **Read-Only**: It only runs `get` methods. It does not construct or send mutating transactions.
 2. **Private-Key Free**: No private keys or mnemonics are used.
 3. **No Wallet Signature**: Uses plain public queries.
 4. **Mock Refusal**: Refuses to run if `CHAIN_INDEXER_MODE=mock` (exits with non-zero exit code).
-5. **No Secrets Output**: Safely redacts credentials (e.g. `TON_API_KEY`) from terminal logs.
+5. **No Secrets Output**: Safely redacts credentials from logs and outputs the source of API key (`TONCENTER_API_KEY` or `TON_API_KEY`).
+6. **No API Key Graceful Fallback**: If no API key is provided, the script will proceed in rate-limited public mode but outputs warning logs about potential rate limits.
 
 ---
 
