@@ -1,0 +1,16 @@
+name = "diao-tg-app"
+compatibility_date = "2024-04-03"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = ".vercel/output/static"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "gou"
+database_id = "23664c9d-9783-4457-839e-18e3074cd024" # Will be filled after D1 database creation
+
+[[r2_buckets]]
+binding = "LOSS_PROOFS"
+bucket_name = "gou-loss-proofs"
+
+[ai]
+binding = "AI"

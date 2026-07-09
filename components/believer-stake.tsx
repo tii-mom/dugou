@@ -5,9 +5,9 @@ import { Leaf, Star } from 'lucide-react'
 import { useApp } from '@/lib/app-context'
 
 const teams = [
-  { id: 't1', name: '回本敢死队', members: 6, progress: 0.54 },
+  { id: 't1', name: '春天守望队', members: 6, progress: 0.54 },
   { id: 't2', name: '凌晨三点俱乐部', members: 9, progress: 0.38 },
-  { id: 't3', name: '不再梭哈联盟', members: 4, progress: 0.71 },
+  { id: 't3', name: '稳住重启联盟', members: 4, progress: 0.71 },
 ]
 
 const amounts = [50, 100, 500]
@@ -26,12 +26,12 @@ export function BelieverStake() {
         </div>
         <h1 className="text-2xl font-bold">为幸存者点亮一盏灯</h1>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          质押 D 代币或稳定币，积累护林值与光合积累，静静守望一支狗队。
+          选择演示额度和队伍，体验守望流程；真实支持记录和权益规则待后端接入。
         </p>
       </header>
 
       <section className="evidence-card flex flex-col gap-4 rounded-3xl p-6">
-        <h2 className="text-sm font-bold">选择质押额度</h2>
+        <h2 className="text-sm font-bold">选择演示额度</h2>
         <div className="flex gap-3">
           {amounts.map((a) => (
             <button
@@ -49,7 +49,7 @@ export function BelieverStake() {
           ))}
         </div>
         <div className="flex items-center justify-between rounded-xl bg-secondary px-4 py-3">
-          <span className="text-xs text-muted-foreground">预计每日光合积累</span>
+          <span className="text-xs text-muted-foreground">演示每日光合积累</span>
           <span key={amount} className="num-pop font-mono text-sm font-bold text-success">
             +{Math.round(amount * 0.8)} 护林值
           </span>
@@ -57,7 +57,7 @@ export function BelieverStake() {
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-bold">定向守望一支狗队（可选）</h2>
+        <h2 className="text-sm font-bold">定向守望一支队伍（可选）</h2>
         {teams.map((t) => (
           <button
             key={t.id}
@@ -75,7 +75,7 @@ export function BelieverStake() {
           </button>
         ))}
         <p className="text-xs leading-relaxed text-muted-foreground">
-          守望后，你的头像将以小巧星标出现在该队伍成员环绕列表的外圈。
+          守望后会进入演示控制台；真实队伍关系需要服务端保存。
         </p>
       </section>
 
@@ -84,7 +84,7 @@ export function BelieverStake() {
         onClick={() => setStage('app')}
         className="breathe mt-auto w-full rounded-2xl bg-success py-4 text-base font-bold text-success-foreground"
       >
-        点亮这盏灯
+        进入演示守望
       </button>
     </main>
   )

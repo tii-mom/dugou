@@ -37,6 +37,8 @@
 
 :root {
   color-scheme: dark;
+  --font-sans-family: ui-sans-serif;
+  --font-mono-family: ui-monospace;
   /* 深夜黑 */
   --background: oklch(0.13 0.01 270);
   --foreground: oklch(0.93 0.005 90);
@@ -72,14 +74,36 @@
   }
   html {
     @apply bg-background;
+    min-height: 100%;
+    -webkit-text-size-adjust: 100%;
   }
   body {
     @apply bg-background text-foreground font-sans;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    overscroll-behavior: none;
     font-variant-numeric: tabular-nums;
   }
   button {
+    min-height: 44px;
     touch-action: manipulation;
   }
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 3px;
+  }
+}
+
+.tg-safe-screen {
+  padding-top: max(0px, env(safe-area-inset-top));
+  padding-left: max(0px, env(safe-area-inset-left));
+  padding-right: max(0px, env(safe-area-inset-right));
+}
+
+.tg-bottom-nav {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -226,7 +250,7 @@
   100% { transform: translateY(-160px) scale(0.2); opacity: 0; }
 }
 
-/* ===== 暴击金色炸裂 ===== */
+/* ===== Golden burst effect ===== */
 .crit-burst {
   animation: crit-burst 0.9s cubic-bezier(0.2, 1.4, 0.4, 1) 1;
 }

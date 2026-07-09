@@ -5,11 +5,24 @@ __v0_jsx-dev-runtime.ts
 .snowflake/
 .v0-trash/
 .vercel/
+.wrangler/
 
 # Environment variables
+.env
 .env*.local
 
 # Common ignores
 node_modules
+.pnpm-store/
 .next/
 .DS_Store
+*.tsbuildinfo
+
+# Local dev/runtime artifacts
+.next-dev.log
+.next-dev.pid
+_tmp_*
+*.log
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

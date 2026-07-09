@@ -1,24 +1,46 @@
-import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import Script from 'next/script'
+import { TelegramWebAppInit } from '@/components/telegram-webapp-init'
 import './globals.css'
 
-const geistSans = Geist({ subsets: ['latin'], variable: '--font-sans-family' })
-const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono-family' })
-
 export const metadata: Metadata = {
-  title: '赌狗也有春天',
-  description: '别怕，这里的人比你更惨。深夜黑与救赎绿的回本之旅。',
-  generator: 'v0.app',
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://diao-tg-app.pages.dev'),
+  title: {
+    default: '赌狗也有春天 | DIAO',
+    template: '%s | DIAO',
+  },
+  description: 'DIAO 是一场机会的测试。上传合约亏损截图，生成翻身目标，用 DIAO 追踪你的战场进度。',
+  applicationName: '赌狗也有春天 · DIAO',
+  icons: {
+    icon: [
+      { url: '/favicon.ico' },
+      { url: '/icon.png', type: 'image/png' },
+      { url: '/diao.png', type: 'image/png' },
+    ],
+    apple: [{ url: '/icon.png', type: 'image/png' }],
+    shortcut: ['/icon.png'],
+  },
+  openGraph: {
+    title: '赌狗也有春天 | DIAO',
+    description: '上传合约亏损截图，生成翻身目标，用 DIAO 追踪你的战场进度。',
+    siteName: 'DIAO',
+    images: [{ url: '/icon.png', width: 709, height: 709, alt: 'DIAO logo' }],
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary',
+    title: '赌狗也有春天 | DIAO',
+    description: '上传合约亏损截图，生成翻身目标，用 DIAO 追踪你的战场进度。',
+    images: ['/icon.png'],
+  },
 }
 
 export const viewport: Viewport = {
   colorScheme: 'dark',
   themeColor: '#0e0e14',
-  userScalable: false,
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({
@@ -27,10 +49,13 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="zh-CN" className={`bg-background ${geistSans.variable} ${geistMono.variable}`}>
+    <html lang="zh-CN" className="bg-background" suppressHydrationWarning>
+      <head>
+        <Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
+      </head>
       <body className="antialiased">
+        <TelegramWebAppInit />
         {children}
-        {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>
   )
