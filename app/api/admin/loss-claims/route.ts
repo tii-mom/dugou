@@ -1,5 +1,6 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { verifyAdminReviewToken } from '@/lib/admin-auth'
+import { isRateLimited } from '@/lib/rate-limit'
 
 export const runtime = 'edge'
 
@@ -42,6 +43,9 @@ function normalizeLimit(value: string | null) {
 
 export async function GET(request: Request) {
   const env = getEnv()
+  if (await isRateLimited(request, env.DB, { route: '/api/admin/loss-claims', limit: 30 })) {
+    return json({ error: 'Too many requests.' }, 429)
+  }
   if (!(await verifyAdminReviewToken(request, env))) {
     return json({ error: 'Unauthorized.' }, 401)
   }
@@ -107,6 +111,9 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   const env = getEnv()
+  if (await isRateLimited(request, env.DB, { route: '/api/admin/loss-claims', limit: 30 })) {
+    return json({ error: 'Too many requests.' }, 429)
+  }
   if (!(await verifyAdminReviewToken(request, env))) {
     return json({ error: 'Unauthorized.' }, 401)
   }
