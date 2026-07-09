@@ -28,10 +28,21 @@ const ERR_INVALID_RESCUE_RECIPIENT = 122;
 const ERR_RESCUE_AMOUNT_EXCEEDED = 123;
 const ERR_INVALID_PAYLOAD = 77;
 
+const TRANSFER_BUYER = 1;
+const TRANSFER_RESERVE = 2;
+const TRANSFER_TEAM = 3;
+const TRANSFER_RESCUE = 4;
+
 // Structs
 struct UserPackageInfo {
     packageCount: uint8
     highestClaimedRound: uint8
+}
+
+struct PendingTransferInfo {
+    transferType: uint8
+    recipient: address
+    amount: coins
 }
 
 struct VestingControllerStorage {
@@ -55,6 +66,12 @@ struct VestingControllerStorage {
     teamClaimedRound: int
     funded: bool
     emergencyRescued: coins
+    pendingBuyerDiao: map<address, coins>
+    pendingReserveDiao: coins
+    pendingTeamDiao: coins
+    pendingRescueDiao: map<address, coins>
+    pendingTransfers: map<uint64, PendingTransferInfo>
+    transferNonce: int
 }
 
 fun loadVestingStorage(): VestingControllerStorage {
@@ -87,11 +104,20 @@ fun loadVestingStorage(): VestingControllerStorage {
     val teamClaimedRound = ds3.loadUint(8);
     val funded = ds3.loadBool();
     val emergencyRescued = ds3.loadCoins();
+    val pendingBuyerDiao = ds3.loadDict();
+    val pendingReserveDiao = ds3.loadCoins();
+    val pendingTeamDiao = ds3.loadCoins();
+    val pendingRescueDiao = ds3.loadDict();
+    val pendingTransfers = ds3.loadDict();
+    val transferNonce = ds3.loadUint(64);
     ds3.assertEnd();
     
     ds.assertEnd();
     
     val typedMap = createMapFromLowLevelDict<address, UserPackageInfo>(userPackages);
+    val typedPendingBuyer = createMapFromLowLevelDict<address, coins>(pendingBuyerDiao);
+    val typedPendingRescue = createMapFromLowLevelDict<address, coins>(pendingRescueDiao);
+    val typedPendingTransfers = createMapFromLowLevelDict<uint64, PendingTransferInfo>(pendingTransfers);
 
     return VestingControllerStorage {
         adminAddress,
@@ -113,12 +139,21 @@ fun loadVestingStorage(): VestingControllerStorage {
         reserveAlreadyClaimed,
         teamClaimedRound,
         funded,
-        emergencyRescued
+        emergencyRescued,
+        pendingBuyerDiao: typedPendingBuyer,
+        pendingReserveDiao,
+        pendingTeamDiao,
+        pendingRescueDiao: typedPendingRescue,
+        pendingTransfers: typedPendingTransfers,
+        transferNonce
     };
 }
 
 fun saveVestingStorage(s: VestingControllerStorage) {
     val rawDict = s.userPackages.toLowLevelDict();
+    val rawPendingBuyer = s.pendingBuyerDiao.toLowLevelDict();
+    val rawPendingRescue = s.pendingRescueDiao.toLowLevelDict();
+    val rawPendingTransfers = s.pendingTransfers.toLowLevelDict();
     
     val cell2 = beginCell()
         .storeAddress(s.officialReserveAddress)
@@ -144,6 +179,12 @@ fun saveVestingStorage(s: VestingControllerStorage) {
         .storeUint(s.teamClaimedRound, 8)
         .storeBool(s.funded)
         .storeCoins(s.emergencyRescued)
+        .storeDict(rawPendingBuyer)
+        .storeCoins(s.pendingReserveDiao)
+        .storeCoins(s.pendingTeamDiao)
+        .storeDict(rawPendingRescue)
+        .storeDict(rawPendingTransfers)
+        .storeUint(s.transferNonce, 64)
         .endCell();
 
     var builder = beginCell()
@@ -228,6 +269,23 @@ struct (0x45525351) EmergencyRescueDiao {
     amount: coins
 }
 
+struct (0x52544255) RetryBuyerTransfer {
+    queryId: uint64
+}
+
+struct (0x52545245) RetryReserveTransfer {
+    queryId: uint64
+}
+
+struct (0x52545445) RetryTeamTransfer {
+    queryId: uint64
+}
+
+struct (0x52545253) RetryRescueTransfer {
+    queryId: uint64
+    recipient: address
+}
+
 // Jetton Messages
 struct (0x0f8a7ea5) AskToTransfer {
     queryId: uint64
@@ -260,7 +318,46 @@ type AllowedMessageToVesting =
     | WithdrawTon
     | AdminControl
     | EmergencyRescueDiao
+    | RetryBuyerTransfer
+    | RetryReserveTransfer
+    | RetryTeamTransfer
+    | RetryRescueTransfer
     | ReturnExcessesBack
+
+fun getCoinFromMap(m: map<address, coins>, owner: address): coins {
+    var r = m.get(owner);
+    if (r.isFound) {
+        return r.loadValue();
+    }
+    return 0;
+}
+
+fun addCoinToMap(m: map<address, coins>, owner: address, amount: coins): map<address, coins> {
+    val current = getCoinFromMap(m, owner);
+    m.set(owner, current + amount);
+    return m;
+}
+
+fun subCoinFromMap(m: map<address, coins>, owner: address, amount: coins): map<address, coins> {
+    val current = getCoinFromMap(m, owner);
+    assert(current >= amount) throw ERR_NOTHING_TO_CLAIM;
+    m.set(owner, current - amount);
+    return m;
+}
+
+fun nextTransferQueryId(s: VestingControllerStorage): int {
+    return s.transferNonce + 1;
+}
+
+fun rememberPendingTransfer(s: VestingControllerStorage, queryId: int, transferType: int, recipient: address, amount: coins): VestingControllerStorage {
+    s.pendingTransfers.set(queryId, PendingTransferInfo {
+        transferType: transferType,
+        recipient,
+        amount
+    });
+    s.transferNonce = queryId;
+    return s;
+}
 
 fun sendJettonTransfer(
     jettonWalletAddress: address,
@@ -293,6 +390,37 @@ fun sendJettonTransfer(
 
 fun onBouncedMessage(in: InMessageBounced) {
     in.bouncedBody.skipBouncedPrefix();
+
+    val msg = lazy AskToTransfer.fromSlice(in.bouncedBody);
+    val queryId = msg.queryId;
+
+    var storage = loadVestingStorage();
+    var r = storage.pendingTransfers.get(queryId);
+    if (!r.isFound) {
+        return;
+    }
+
+    val pending = r.loadValue();
+    if (pending.amount == 0) {
+        return;
+    }
+
+    if (pending.transferType == TRANSFER_BUYER) {
+        storage.pendingBuyerDiao = addCoinToMap(storage.pendingBuyerDiao, pending.recipient, pending.amount);
+    } else if (pending.transferType == TRANSFER_RESERVE) {
+        storage.pendingReserveDiao += pending.amount;
+    } else if (pending.transferType == TRANSFER_TEAM) {
+        storage.pendingTeamDiao += pending.amount;
+    } else if (pending.transferType == TRANSFER_RESCUE) {
+        storage.pendingRescueDiao = addCoinToMap(storage.pendingRescueDiao, pending.recipient, pending.amount);
+    }
+
+    storage.pendingTransfers.set(queryId, PendingTransferInfo {
+        transferType: pending.transferType,
+        recipient: pending.recipient,
+        amount: 0
+    });
+    saveVestingStorage(storage);
 }
 
 fun isSenderVestingWallet(senderAddress: address): bool {
@@ -399,10 +527,13 @@ fun handleAllowedMessage(senderAddress: address, valueCoins: coins, body: slice)
             
             // Excesses go to the buyer
             val tonToSend = valueCoins - (packageCount * PACKAGE_PRICE_TON);
+            val transferQueryId = nextTransferQueryId(storage);
+            storage = rememberPendingTransfer(storage, transferQueryId, TRANSFER_BUYER, userAddress, immediateAmount);
+            saveVestingStorage(storage);
 
             sendJettonTransfer(
                 jettonWallet,
-                msg.queryId,
+                transferQueryId,
                 immediateAmount,
                 userAddress,
                 userAddress,
@@ -443,10 +574,13 @@ fun handleAllowedMessage(senderAddress: address, valueCoins: coins, body: slice)
             
             val tonToSend = valueCoins - ton("0.05");
             assert(tonToSend > ton("0.05")) throw ERR_NOT_ENOUGH_TON;
+            val transferQueryId = nextTransferQueryId(storage);
+            storage = rememberPendingTransfer(storage, transferQueryId, TRANSFER_BUYER, userAddress, claimAmount);
+            saveVestingStorage(storage);
 
             sendJettonTransfer(
                 jettonWallet,
-                msg.queryId,
+                transferQueryId,
                 claimAmount,
                 userAddress,
                 userAddress,
@@ -485,10 +619,13 @@ fun handleAllowedMessage(senderAddress: address, valueCoins: coins, body: slice)
             
             val tonToSend = valueCoins - ton("0.05");
             assert(tonToSend > ton("0.05")) throw ERR_NOT_ENOUGH_TON;
+            val transferQueryId = nextTransferQueryId(storage);
+            storage = rememberPendingTransfer(storage, transferQueryId, TRANSFER_RESERVE, storage.officialReserveAddress, claimAmount);
+            saveVestingStorage(storage);
 
             sendJettonTransfer(
                 jettonWallet,
-                msg.queryId,
+                transferQueryId,
                 claimAmount,
                 storage.officialReserveAddress,
                 storage.officialReserveAddress,
@@ -522,10 +659,13 @@ fun handleAllowedMessage(senderAddress: address, valueCoins: coins, body: slice)
             
             val tonToSend = valueCoins - ton("0.05");
             assert(tonToSend > ton("0.05")) throw ERR_NOT_ENOUGH_TON;
+            val transferQueryId = nextTransferQueryId(storage);
+            storage = rememberPendingTransfer(storage, transferQueryId, TRANSFER_TEAM, storage.teamAddress, claimAmount);
+            saveVestingStorage(storage);
 
             sendJettonTransfer(
                 jettonWallet,
-                msg.queryId,
+                transferQueryId,
                 claimAmount,
                 storage.teamAddress,
                 storage.teamAddress,
@@ -645,11 +785,119 @@ fun handleAllowedMessage(senderAddress: address, valueCoins: coins, body: slice)
             val jettonWallet = calcAddressOfJettonWallet(contract.getAddress(), storage.jettonMinterAddress, storage.jettonWalletCode);
             val tonToSend = valueCoins - ton("0.05");
             assert(tonToSend > ton("0.05")) throw ERR_NOT_ENOUGH_TON;
+            val transferQueryId = nextTransferQueryId(storage);
+            storage = rememberPendingTransfer(storage, transferQueryId, TRANSFER_RESCUE, msg.recipient, msg.amount);
+            saveVestingStorage(storage);
 
             sendJettonTransfer(
                 jettonWallet,
-                msg.queryId,
+                transferQueryId,
                 msg.amount,
+                msg.recipient,
+                msg.recipient,
+                tonToSend
+            );
+        }
+
+        RetryBuyerTransfer => {
+            var storage = loadVestingStorage();
+            assert(storage.funded) throw ERR_NOT_FUNDED;
+
+            val pendingAmount = getCoinFromMap(storage.pendingBuyerDiao, senderAddress);
+            assert(pendingAmount > 0) throw ERR_NOTHING_TO_CLAIM;
+
+            val jettonWallet = calcAddressOfJettonWallet(contract.getAddress(), storage.jettonMinterAddress, storage.jettonWalletCode);
+            val tonToSend = valueCoins - ton("0.05");
+            assert(tonToSend > ton("0.05")) throw ERR_NOT_ENOUGH_TON;
+
+            storage.pendingBuyerDiao = subCoinFromMap(storage.pendingBuyerDiao, senderAddress, pendingAmount);
+            val transferQueryId = nextTransferQueryId(storage);
+            storage = rememberPendingTransfer(storage, transferQueryId, TRANSFER_BUYER, senderAddress, pendingAmount);
+            saveVestingStorage(storage);
+
+            sendJettonTransfer(
+                jettonWallet,
+                transferQueryId,
+                pendingAmount,
+                senderAddress,
+                senderAddress,
+                tonToSend
+            );
+        }
+
+        RetryReserveTransfer => {
+            var storage = loadVestingStorage();
+            assert(storage.funded) throw ERR_NOT_FUNDED;
+            assert(senderAddress == storage.officialReserveAddress) throw ERR_NOT_FROM_OFFICIAL_RESERVE;
+            assert(storage.pendingReserveDiao > 0) throw ERR_NOTHING_TO_CLAIM;
+
+            val pendingAmount = storage.pendingReserveDiao;
+            val jettonWallet = calcAddressOfJettonWallet(contract.getAddress(), storage.jettonMinterAddress, storage.jettonWalletCode);
+            val tonToSend = valueCoins - ton("0.05");
+            assert(tonToSend > ton("0.05")) throw ERR_NOT_ENOUGH_TON;
+
+            storage.pendingReserveDiao = 0;
+            val transferQueryId = nextTransferQueryId(storage);
+            storage = rememberPendingTransfer(storage, transferQueryId, TRANSFER_RESERVE, storage.officialReserveAddress, pendingAmount);
+            saveVestingStorage(storage);
+
+            sendJettonTransfer(
+                jettonWallet,
+                transferQueryId,
+                pendingAmount,
+                storage.officialReserveAddress,
+                storage.officialReserveAddress,
+                tonToSend
+            );
+        }
+
+        RetryTeamTransfer => {
+            var storage = loadVestingStorage();
+            assert(storage.funded) throw ERR_NOT_FUNDED;
+            assert(senderAddress == storage.teamAddress) throw ERR_NOT_FROM_TEAM;
+            assert(storage.pendingTeamDiao > 0) throw ERR_NOTHING_TO_CLAIM;
+
+            val pendingAmount = storage.pendingTeamDiao;
+            val jettonWallet = calcAddressOfJettonWallet(contract.getAddress(), storage.jettonMinterAddress, storage.jettonWalletCode);
+            val tonToSend = valueCoins - ton("0.05");
+            assert(tonToSend > ton("0.05")) throw ERR_NOT_ENOUGH_TON;
+
+            storage.pendingTeamDiao = 0;
+            val transferQueryId = nextTransferQueryId(storage);
+            storage = rememberPendingTransfer(storage, transferQueryId, TRANSFER_TEAM, storage.teamAddress, pendingAmount);
+            saveVestingStorage(storage);
+
+            sendJettonTransfer(
+                jettonWallet,
+                transferQueryId,
+                pendingAmount,
+                storage.teamAddress,
+                storage.teamAddress,
+                tonToSend
+            );
+        }
+
+        RetryRescueTransfer => {
+            var storage = loadVestingStorage();
+            assert(storage.funded) throw ERR_NOT_FUNDED;
+            assert((senderAddress == storage.adminAddress) | (senderAddress == msg.recipient)) throw ERR_NOT_FROM_ADMIN;
+
+            val pendingAmount = getCoinFromMap(storage.pendingRescueDiao, msg.recipient);
+            assert(pendingAmount > 0) throw ERR_NOTHING_TO_CLAIM;
+
+            val jettonWallet = calcAddressOfJettonWallet(contract.getAddress(), storage.jettonMinterAddress, storage.jettonWalletCode);
+            val tonToSend = valueCoins - ton("0.05");
+            assert(tonToSend > ton("0.05")) throw ERR_NOT_ENOUGH_TON;
+
+            storage.pendingRescueDiao = subCoinFromMap(storage.pendingRescueDiao, msg.recipient, pendingAmount);
+            val transferQueryId = nextTransferQueryId(storage);
+            storage = rememberPendingTransfer(storage, transferQueryId, TRANSFER_RESCUE, msg.recipient, pendingAmount);
+            saveVestingStorage(storage);
+
+            sendJettonTransfer(
+                jettonWallet,
+                transferQueryId,
+                pendingAmount,
                 msg.recipient,
                 msg.recipient,
                 tonToSend
@@ -720,4 +968,24 @@ get fun get_user_packages(userAddress: address): UserPackageInfo {
 get fun get_vesting_wallet_address(): address {
     var storage = loadVestingStorage();
     return calcAddressOfJettonWallet(contract.getAddress(), storage.jettonMinterAddress, storage.jettonWalletCode);
+}
+
+get fun get_pending_buyer_diao(userAddress: address): coins {
+    var storage = loadVestingStorage();
+    return getCoinFromMap(storage.pendingBuyerDiao, userAddress);
+}
+
+get fun get_pending_reserve_diao(): coins {
+    var storage = loadVestingStorage();
+    return storage.pendingReserveDiao;
+}
+
+get fun get_pending_team_diao(): coins {
+    var storage = loadVestingStorage();
+    return storage.pendingTeamDiao;
+}
+
+get fun get_pending_rescue_diao(recipient: address): coins {
+    var storage = loadVestingStorage();
+    return getCoinFromMap(storage.pendingRescueDiao, recipient);
 }

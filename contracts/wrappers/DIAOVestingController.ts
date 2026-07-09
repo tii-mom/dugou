@@ -57,6 +57,12 @@ export function diaoVestingControllerConfigToCell(config: DIAOVestingControllerC
         .storeUint(config.teamClaimedRound, 8)
         .storeBit(config.funded)
         .storeCoins(config.emergencyRescued)
+        .storeBit(false) // pendingBuyerDiao is empty dict
+        .storeCoins(0n) // pendingReserveDiao
+        .storeCoins(0n) // pendingTeamDiao
+        .storeBit(false) // pendingRescueDiao is empty dict
+        .storeBit(false) // pendingTransfers is empty dict
+        .storeUint(0, 64) // transferNonce
         .endCell();
 
     return beginCell()
@@ -246,6 +252,55 @@ export class DIAOVestingController implements Contract {
         });
     }
 
+    async sendRetryBuyerTransfer(provider: ContractProvider, via: Sender, opts: { value: bigint, queryId?: bigint }) {
+        await provider.internal(via, {
+            value: opts.value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell()
+                .storeUint(0x52544255, 32)
+                .storeUint(opts.queryId ?? 0, 64)
+                .endCell(),
+        });
+    }
+
+    async sendRetryReserveTransfer(provider: ContractProvider, via: Sender, opts: { value: bigint, queryId?: bigint }) {
+        await provider.internal(via, {
+            value: opts.value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell()
+                .storeUint(0x52545245, 32)
+                .storeUint(opts.queryId ?? 0, 64)
+                .endCell(),
+        });
+    }
+
+    async sendRetryTeamTransfer(provider: ContractProvider, via: Sender, opts: { value: bigint, queryId?: bigint }) {
+        await provider.internal(via, {
+            value: opts.value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell()
+                .storeUint(0x52545445, 32)
+                .storeUint(opts.queryId ?? 0, 64)
+                .endCell(),
+        });
+    }
+
+    async sendRetryRescueTransfer(
+        provider: ContractProvider,
+        via: Sender,
+        opts: { recipient: Address; value: bigint, queryId?: bigint }
+    ) {
+        await provider.internal(via, {
+            value: opts.value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell()
+                .storeUint(0x52545253, 32)
+                .storeUint(opts.queryId ?? 0, 64)
+                .storeAddress(opts.recipient)
+                .endCell(),
+        });
+    }
+
     async getVestingData(provider: ContractProvider) {
         const res = await provider.get('get_vesting_data', []);
         const adminAddress = res.stack.readAddress();
@@ -301,5 +356,29 @@ export class DIAOVestingController implements Contract {
     async getVestingWalletAddress(provider: ContractProvider): Promise<Address> {
         const res = await provider.get('get_vesting_wallet_address', []);
         return res.stack.readAddress();
+    }
+
+    async getPendingBuyerDiao(provider: ContractProvider, userAddress: Address): Promise<bigint> {
+        const res = await provider.get('get_pending_buyer_diao', [
+            { type: 'slice', cell: beginCell().storeAddress(userAddress).endCell() }
+        ]);
+        return res.stack.readBigNumber();
+    }
+
+    async getPendingReserveDiao(provider: ContractProvider): Promise<bigint> {
+        const res = await provider.get('get_pending_reserve_diao', []);
+        return res.stack.readBigNumber();
+    }
+
+    async getPendingTeamDiao(provider: ContractProvider): Promise<bigint> {
+        const res = await provider.get('get_pending_team_diao', []);
+        return res.stack.readBigNumber();
+    }
+
+    async getPendingRescueDiao(provider: ContractProvider, recipient: Address): Promise<bigint> {
+        const res = await provider.get('get_pending_rescue_diao', [
+            { type: 'slice', cell: beginCell().storeAddress(recipient).endCell() }
+        ]);
+        return res.stack.readBigNumber();
     }
 }
