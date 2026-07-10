@@ -3,7 +3,7 @@ import { Address, Cell, Sender, beginCell, toNano, Transaction } from '@ton/core
 import { compile } from '@ton/blueprint';
 import '@ton/test-utils';
 import { DIAOJettonMinter } from '../wrappers/DIAOJettonMinter';
-import { DIAOJettonWallet } from '../wrappers/DIAOJettonWallet';
+import { DIAOJettonWallet, diaoJettonWalletConfigToCell } from '../wrappers/DIAOJettonWallet';
 import { DIAOVestingController } from '../wrappers/DIAOVestingController';
 import { config as addrConfig } from '../wrappers/config';
 
@@ -261,4 +261,86 @@ describe('DIAO Vesting async-safe transfer retry', () => {
         });
         expect(duplicate.transactions).toHaveTransaction({ from: addrConfig.adminWallet, to: vesting.address, success: false, exitCode: 117 });
     });
+
+    it('covers second-leg transfer failure (Vesting Jetton Wallet -> recipient Jetton Wallet)', async () => {
+        await fundVestingWallet();
+
+        // Use the static broken recipient address. The wallet code will automatically fail/bounce if the recipient is this address.
+        const brokenRecipientAddress = Address.parse("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c");
+        const brokenRecipient = await blockchain.sender(brokenRecipientAddress);
+
+        // Let's trigger BuyPackage for brokenRecipient
+        const purchaseResult = await vesting.sendBuyPackage(brokenRecipient, { packageCount: 1, value: toNano('58.2') });
+
+        // Assert VestingController received the TransferFailedNotification and added to pendingBuyerDiao
+        expect(purchaseResult.transactions).toHaveTransaction({
+            from: brokenRecipientAddress,
+            to: vesting.address,
+            success: true
+        });
+
+        expect(await vesting.getPendingBuyerDiao(brokenRecipientAddress)).toBe(PACKAGE_IMMEDIATE);
+    });
+
+    it('enforces unauthorized retry restrictions', async () => {
+        // Buyer pending retry unauthorized
+        const unauthorizedBuyer = await blockchain.treasury('unauthorized-buyer');
+        await vesting.sendBuyPackage(buyer.getSender(), { packageCount: 1, value: toNano('58.2') });
+        expect(await vesting.getPendingBuyerDiao(buyer.address)).toBe(PACKAGE_IMMEDIATE);
+
+        // Try to retry buyer's transfer using unauthorizedBuyer
+        const retryRes = await vesting.sendRetryBuyerTransfer(unauthorizedBuyer.getSender(), { value: toNano('0.2') });
+        expect(retryRes.transactions).toHaveTransaction({
+            from: unauthorizedBuyer.address,
+            to: vesting.address,
+            success: false,
+            exitCode: 117
+        });
+
+        // Reserve pending retry unauthorized
+        await vesting.sendAdminControl(adminSender, { action: 7, value: toNano('0.05') });
+        await unlockTo(1);
+        const claimAmount = (BUYER_AND_RESERVE_POOL - PACKAGE_TOTAL) / 15n;
+        await vesting.sendClaimReserve(reserveSender, { value: toNano('0.2') });
+        expect(await vesting.getPendingReserveDiao()).toBe(claimAmount);
+
+        const retryReserveRes = await vesting.sendRetryReserveTransfer(buyer.getSender(), { value: toNano('0.2') });
+        expect(retryReserveRes.transactions).toHaveTransaction({
+            from: buyer.address,
+            to: vesting.address,
+            success: false,
+            exitCode: 115
+        });
+    });
+
+    it('verifies pendingTransfers cleanup and life cycle', async () => {
+        // Buy package and get the transfer nonce / queryId
+        const nonceBefore = await vesting.getTransferNonce();
+        await vesting.sendBuyPackage(buyer.getSender(), { packageCount: 1, value: toNano('58.2') });
+        const nonceAfter = await vesting.getTransferNonce();
+        expect(nonceAfter).toBe(nonceBefore + 1n);
+
+        // The pendingTransfer should have been marked as resolved (amount = 0) since it bounced (funded=false initially, wait, funded is true here? No, in beforeEach, funded is true. Since funded is true, first immediate rewards are sent, but wait, the Vesting Jetton Wallet is deployed and funded? No, beforeEach doesn't fund it unless we call fundVestingWallet. So the transfer fails/bounces because the Vesting Jetton Wallet has 0 balance!).
+        // Let's verify the amount in pendingTransfer is 0
+        const pendingTx = await vesting.getPendingTransfer(nonceAfter);
+        expect(pendingTx.amount).toBe(0n);
+
+        // Try to prune the resolved pendingTransfer via AdminControl action 8
+        const prunePayload = beginCell().storeUint(nonceAfter, 64).endCell();
+        const pruneResult = await vesting.sendAdminControl(adminSender, {
+            action: 8,
+            payload: prunePayload,
+            value: toNano('0.1')
+        });
+        expect(pruneResult.transactions).toHaveTransaction({
+            from: addrConfig.adminWallet,
+            to: vesting.address,
+            success: true
+        });
+
+        // Verifying it is cleared/pruned (transferType = 0)
+        const pendingTxAfterPrune = await vesting.getPendingTransfer(nonceAfter);
+        expect(pendingTxAfterPrune.transferType).toBe(0);
+    });
 });
+

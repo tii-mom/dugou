@@ -365,10 +365,9 @@ fun sendJettonTransfer(
     jettonAmount: int,
     recipient: address,
     sendExcessesTo: address,
-    tonAmount: int
+    tonAmount: int,
+    forwardPayload: slice
 ) {
-    val emptyPayload = beginCell().endCell().beginParse();
-
     val transferMsg = AskToTransfer {
         queryId,
         jettonAmount,
@@ -376,7 +375,7 @@ fun sendJettonTransfer(
         sendExcessesTo,
         customPayload: null,
         forwardTonAmount: 0,
-        forwardPayload: emptyPayload
+        forwardPayload
     };
 
     val msg = createMessage({
@@ -445,6 +444,11 @@ fun isSenderVestingWallet(senderAddress: address): bool {
     return senderAddress == expectedWallet;
 }
 
+struct (0x5754464e) TransferFailedNotification {
+    queryId: uint64
+    jettonAmount: coins
+}
+
 fun onInternalMessage(in: InMessage) {
     var body = in.body;
     if (body.remainingBitsCount() < 32) {
@@ -461,6 +465,39 @@ fun onInternalMessage(in: InMessage) {
                 var storage = loadVestingStorage();
                 storage.funded = true;
                 saveVestingStorage(storage);
+            }
+        }
+        return;
+    }
+    if (op == 0x5754464e) { // TransferFailedNotification (second-leg failure callback)
+        if (isSenderVestingWallet(in.senderAddress)) {
+            body.skipBits(32);
+            val queryId = body.loadUint(64);
+            val jettonAmount = body.loadCoins();
+
+            var storage = loadVestingStorage();
+            var r = storage.pendingTransfers.get(queryId);
+            if (r.isFound) {
+                val pending = r.loadValue();
+                if (pending.amount > 0) {
+                    if (pending.transferType == TRANSFER_BUYER) {
+                        storage.pendingBuyerDiao = addCoinToMap(storage.pendingBuyerDiao, pending.recipient, pending.amount);
+                    } else if (pending.transferType == TRANSFER_RESERVE) {
+                        storage.pendingReserveDiao += pending.amount;
+                    } else if (pending.transferType == TRANSFER_TEAM) {
+                        storage.pendingTeamDiao += pending.amount;
+                    } else if (pending.transferType == TRANSFER_RESCUE) {
+                        storage.pendingRescueDiao = addCoinToMap(storage.pendingRescueDiao, pending.recipient, pending.amount);
+                    }
+
+                    // Clear the pending transfer amount to mark it resolved
+                    storage.pendingTransfers.set(queryId, PendingTransferInfo {
+                        transferType: pending.transferType,
+                        recipient: pending.recipient,
+                        amount: 0
+                    });
+                    saveVestingStorage(storage);
+                }
             }
         }
         return;
@@ -531,13 +568,15 @@ fun handleAllowedMessage(senderAddress: address, valueCoins: coins, body: slice)
             storage = rememberPendingTransfer(storage, transferQueryId, TRANSFER_BUYER, userAddress, immediateAmount);
             saveVestingStorage(storage);
 
+            val emptyPayload = beginCell().endCell().beginParse();
             sendJettonTransfer(
                 jettonWallet,
                 transferQueryId,
                 immediateAmount,
                 userAddress,
                 userAddress,
-                tonToSend
+                tonToSend,
+                emptyPayload
             );
         }
 
@@ -578,13 +617,15 @@ fun handleAllowedMessage(senderAddress: address, valueCoins: coins, body: slice)
             storage = rememberPendingTransfer(storage, transferQueryId, TRANSFER_BUYER, userAddress, claimAmount);
             saveVestingStorage(storage);
 
+            val emptyPayload = beginCell().endCell().beginParse();
             sendJettonTransfer(
                 jettonWallet,
                 transferQueryId,
                 claimAmount,
                 userAddress,
                 userAddress,
-                tonToSend
+                tonToSend,
+                emptyPayload
             );
         }
 
@@ -623,13 +664,15 @@ fun handleAllowedMessage(senderAddress: address, valueCoins: coins, body: slice)
             storage = rememberPendingTransfer(storage, transferQueryId, TRANSFER_RESERVE, storage.officialReserveAddress, claimAmount);
             saveVestingStorage(storage);
 
+            val emptyPayload = beginCell().endCell().beginParse();
             sendJettonTransfer(
                 jettonWallet,
                 transferQueryId,
                 claimAmount,
                 storage.officialReserveAddress,
                 storage.officialReserveAddress,
-                tonToSend
+                tonToSend,
+                emptyPayload
             );
         }
 
@@ -663,13 +706,15 @@ fun handleAllowedMessage(senderAddress: address, valueCoins: coins, body: slice)
             storage = rememberPendingTransfer(storage, transferQueryId, TRANSFER_TEAM, storage.teamAddress, claimAmount);
             saveVestingStorage(storage);
 
+            val emptyPayload = beginCell().endCell().beginParse();
             sendJettonTransfer(
                 jettonWallet,
                 transferQueryId,
                 claimAmount,
                 storage.teamAddress,
                 storage.teamAddress,
-                tonToSend
+                tonToSend,
+                emptyPayload
             );
         }
 
@@ -755,6 +800,19 @@ fun handleAllowedMessage(senderAddress: address, valueCoins: coins, body: slice)
             } else if (action == 7) { // finalize sale
                 storage.saleFinalized = true;
                 storage.saleActive = false;
+            } else if (action == 8) { // prune resolved pending transfers by queryId
+                assert(ps.remainingBitsCount() >= 64) throw ERR_INVALID_PAYLOAD;
+                val targetQueryId = ps.loadUint(64);
+                var r = storage.pendingTransfers.get(targetQueryId);
+                if (r.isFound) {
+                    val pending = r.loadValue();
+                    assert(pending.amount == 0) throw ERR_INVALID_ADMIN_ACTION;
+                    storage.pendingTransfers.set(targetQueryId, PendingTransferInfo {
+                        transferType: 0,
+                        recipient: storage.adminAddress,
+                        amount: 0
+                    });
+                }
             } else {
                 assert(false) throw ERR_INVALID_ADMIN_ACTION;
             }
@@ -789,13 +847,15 @@ fun handleAllowedMessage(senderAddress: address, valueCoins: coins, body: slice)
             storage = rememberPendingTransfer(storage, transferQueryId, TRANSFER_RESCUE, msg.recipient, msg.amount);
             saveVestingStorage(storage);
 
+            val emptyPayload = beginCell().endCell().beginParse();
             sendJettonTransfer(
                 jettonWallet,
                 transferQueryId,
                 msg.amount,
                 msg.recipient,
                 msg.recipient,
-                tonToSend
+                tonToSend,
+                emptyPayload
             );
         }
 
@@ -815,13 +875,15 @@ fun handleAllowedMessage(senderAddress: address, valueCoins: coins, body: slice)
             storage = rememberPendingTransfer(storage, transferQueryId, TRANSFER_BUYER, senderAddress, pendingAmount);
             saveVestingStorage(storage);
 
+            val emptyPayload = beginCell().endCell().beginParse();
             sendJettonTransfer(
                 jettonWallet,
                 transferQueryId,
                 pendingAmount,
                 senderAddress,
                 senderAddress,
-                tonToSend
+                tonToSend,
+                emptyPayload
             );
         }
 
@@ -841,13 +903,15 @@ fun handleAllowedMessage(senderAddress: address, valueCoins: coins, body: slice)
             storage = rememberPendingTransfer(storage, transferQueryId, TRANSFER_RESERVE, storage.officialReserveAddress, pendingAmount);
             saveVestingStorage(storage);
 
+            val emptyPayload = beginCell().endCell().beginParse();
             sendJettonTransfer(
                 jettonWallet,
                 transferQueryId,
                 pendingAmount,
                 storage.officialReserveAddress,
                 storage.officialReserveAddress,
-                tonToSend
+                tonToSend,
+                emptyPayload
             );
         }
 
@@ -867,13 +931,15 @@ fun handleAllowedMessage(senderAddress: address, valueCoins: coins, body: slice)
             storage = rememberPendingTransfer(storage, transferQueryId, TRANSFER_TEAM, storage.teamAddress, pendingAmount);
             saveVestingStorage(storage);
 
+            val emptyPayload = beginCell().endCell().beginParse();
             sendJettonTransfer(
                 jettonWallet,
                 transferQueryId,
                 pendingAmount,
                 storage.teamAddress,
                 storage.teamAddress,
-                tonToSend
+                tonToSend,
+                emptyPayload
             );
         }
 
@@ -894,13 +960,15 @@ fun handleAllowedMessage(senderAddress: address, valueCoins: coins, body: slice)
             storage = rememberPendingTransfer(storage, transferQueryId, TRANSFER_RESCUE, msg.recipient, pendingAmount);
             saveVestingStorage(storage);
 
+            val emptyPayload = beginCell().endCell().beginParse();
             sendJettonTransfer(
                 jettonWallet,
                 transferQueryId,
                 pendingAmount,
                 msg.recipient,
                 msg.recipient,
-                tonToSend
+                tonToSend,
+                emptyPayload
             );
         }
 
@@ -988,4 +1056,33 @@ get fun get_pending_team_diao(): coins {
 get fun get_pending_rescue_diao(recipient: address): coins {
     var storage = loadVestingStorage();
     return getCoinFromMap(storage.pendingRescueDiao, recipient);
+}
+
+struct PendingTransferInfoReply {
+    transferType: uint8
+    recipient: address
+    amount: coins
+}
+
+get fun get_pending_transfer(queryId: int): PendingTransferInfoReply {
+    var storage = loadVestingStorage();
+    var r = storage.pendingTransfers.get(queryId);
+    if (r.isFound) {
+        val pending = r.loadValue();
+        return PendingTransferInfoReply {
+            transferType: pending.transferType,
+            recipient: pending.recipient,
+            amount: pending.amount
+        };
+    }
+    return PendingTransferInfoReply {
+        transferType: 0,
+        recipient: storage.adminAddress,
+        amount: 0
+    };
+}
+
+get fun get_transfer_nonce(): int {
+    var storage = loadVestingStorage();
+    return storage.transferNonce;
 }

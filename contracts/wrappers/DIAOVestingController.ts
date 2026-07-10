@@ -381,4 +381,22 @@ export class DIAOVestingController implements Contract {
         ]);
         return res.stack.readBigNumber();
     }
+
+    async getPendingTransfer(
+        provider: ContractProvider,
+        queryId: bigint
+    ): Promise<{ transferType: number; recipient: Address; amount: bigint }> {
+        const res = await provider.get('get_pending_transfer', [
+            { type: 'int', value: queryId }
+        ]);
+        const transferType = Number(res.stack.readBigNumber());
+        const recipient = res.stack.readAddress();
+        const amount = res.stack.readBigNumber();
+        return { transferType, recipient, amount };
+    }
+
+    async getTransferNonce(provider: ContractProvider): Promise<bigint> {
+        const res = await provider.get('get_transfer_nonce', []);
+        return res.stack.readBigNumber();
+    }
 }

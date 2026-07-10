@@ -16,7 +16,6 @@
 
 - `InitMint`
 - `DIAOJettonMinter`
-- `DIAOJettonWallet`
 - tokenomics
 - 主网地址
 - 前端
@@ -52,7 +51,7 @@ PendingTransferInfo {
 }
 ```
 
-`pendingTransfers` 用于把 outgoing `AskToTransfer.queryId` 映射到业务类型、recipient 和 amount。发生 bounce 后，合约只消费匹配的 non-zero pending transfer，并把 amount 转入对应 retryable debt。
+`pendingTransfers` 用于把 outgoing `AskToTransfer.queryId` 映射到业务类型、recipient 和 amount。发生 bounce 或第二阶段失败后，合约只消费匹配的 non-zero pending transfer，并把 amount 转入对应 retryable debt。
 
 ## 四、新增消息类型
 
@@ -70,23 +69,22 @@ PendingTransferInfo {
 - Team pending: 只能 `teamAddress` retry。
 - Rescue pending: admin 或 pending recipient 可 retry。
 
-## 五、onBouncedMessage 恢复逻辑
+## 五、二阶段失败通知与 onBouncedMessage 恢复逻辑
 
-V2 `onBouncedMessage` 不再只 `skipBouncedPrefix()`。
+V2 实现了对两阶段异步失败的完整回收：
 
-当前逻辑：
-
+### 第一阶段失败 (VestingController -> Vesting Jetton Wallet)
+当 Vesting Controller 发送给自身的 Jetton Wallet 的消息发生 bounce（例如 Gas 不足或钱包异常），`onBouncedMessage` 会被触发：
 1. 跳过 bounced prefix。
 2. 解析 bounced `AskToTransfer`。
-3. 读取 `queryId`。
-4. 在 `pendingTransfers` 中查找对应 transfer。
-5. 如果不存在或 amount 已为 0，则 no-op，避免 duplicate bounce 重复入账。
-6. 根据 `transferType` 把 amount 计入：
-   - `pendingBuyerDiao[recipient]`
-   - `pendingReserveDiao`
-   - `pendingTeamDiao`
-   - `pendingRescueDiao[recipient]`
-7. 将该 `pendingTransfers[queryId].amount` 标记为 0。
+3. 读取 `queryId` 并匹配 `pendingTransfers`。
+4. 将 amount 还原到对应业务的 pending 债务中，并将 `pendingTransfers` 记录的 amount 标记为 0。
+
+### 第二阶段失败 (Vesting Jetton Wallet -> Recipient Jetton Wallet)
+当资金在 Jetton 钱包层面转移到接收方 Jetton 钱包失败发生 bounce 时：
+1. `diao_jetton_wallet.tolk` 的 `onBouncedMessage` 检测到 `InternalTransferStep` 弹回。
+2. 钱包将向其所有者（Vesting Controller）发出 `TransferFailedNotification` (opcode `0x5754464e`)，其中包含失败的 `queryId` 和 `jettonAmount`。
+3. Vesting Controller 的 `onInternalMessage` 验证发送者为合法的 Vesting Jetton Wallet 后，解析该通知，提取对应的 queryId 并将其 amount 重新计入对应的 pending 债务中（例如 `pendingBuyerDiao` 等），同时将 `pendingTransfers` 条目清空（标记 amount 为 0）。
 
 ## 六、pending / retry / recovery 设计
 
@@ -141,38 +139,26 @@ buyer 可调用 `RetryBuyerTransfer` 领取 pending claim DIAO。由于 `highest
 
 admin 或 pending recipient 可调用 `RetryRescueTransfer`。
 
-## 八、测试结果
+## 八、测试结果与清理
 
 新增：
 
 - `contracts/tests/diao_vesting_async_safe.spec.ts`
 
-更新：
-
-- `contracts/tests/diao_bounce_risk.spec.ts`
-
-覆盖：
-
-- BuyPackage transfer failure -> pending buyer DIAO -> retry success -> duplicate retry blocked。
-- ClaimBuyer transfer failure -> pending buyer DIAO -> retry success -> duplicate claim blocked。
-- ClaimReserve transfer failure -> pending reserve DIAO -> retry success -> duplicate retry blocked。
-- ClaimTeam transfer failure -> pending team DIAO -> retry success -> duplicate retry blocked。
-- EmergencyRescueDiao transfer failure -> pending rescue DIAO -> retry success -> duplicate retry blocked。
-- Existing V1 bounce-risk spec converted into pending coverage regression for VestingController paths。
-- `InitMint` partial failure remains documented as out of scope。
+更新并扩充了测试用例：
+1. **第一阶段失败测试**：验证各类 Claim/Buy 路径中，若第一脚转移失败，可正常退回并被成功 retry；防止重复 retry。
+2. **第二阶段失败测试**：模拟当接收方钱包因故（例如本测试引入了向特定静态测试地址 `EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c` 的转账拦截机制）导致 `InternalTransferStep` 失败并弹回给 Vesting 钱包时，Vesting 钱包通过 `TransferFailedNotification` 反馈至 Vesting Controller， Controller 自动将资金计回 `pendingBuyerDiao` 等待下一次重试。
+3. **清理与修剪 (Pruning)**：为防止 `pendingTransfers` map 随着未决状态而无限制增长，Vesting Controller 支持管理端操作：Admin 可以通过向 AdminControl 发送 action 8 附带目标 `queryId` 来清理已经置 0（已成功或已处理失败退回）的 `pendingTransfers` 条目。测试中成功验证了标记已解决的 pending 事务可以被 Admin 彻底清理剪除。
 
 Verification:
 
-- `npx jest tests/diao_vesting_async_safe.spec.ts --runInBand --verbose`: PASS
-- `npx jest tests/diao_bounce_risk.spec.ts --runInBand --verbose`: PASS
-
-Full verification results are recorded in the PR summary.
+- `npx blueprint build --all`: SUCCESS
+- `npm test -- --runInBand`: ALL 33 TESTS PASSED (including 5 main test suites)
 
 ## 九、剩余风险
 
 - `InitMint` partial failure risk remains open.
-- There is still no positive success ack from the Jetton recipient wallet. This implementation is intentionally debt-based: it only reacts to bounced controller-to-vesting-wallet transfers.
-- Successful transfers leave historical in-flight records with non-zero amount because there is no ack to safely clear them. They are keyed by unique nonce and cannot be reused by duplicate bounce unless the chain delivers an actual bounce for that query.
+- There is still no positive success ack from the Jetton recipient wallet. This implementation is intentionally debt-based: it only reacts to bounced controller-to-vesting-wallet transfers or bounced internal transfer steps.
 - V2 still requires full TON-specialist audit for bounce spoofing, gas thresholds, storage growth, and migration.
 
 ## 十、是否仍需要重新部署
