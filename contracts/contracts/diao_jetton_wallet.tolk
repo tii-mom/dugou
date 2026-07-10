@@ -100,18 +100,38 @@ type AllowedMessageToWallet =
 
 type BounceOpToHandle = InternalTransferStep | BurnNotificationForMinter
 
+struct (0x5754464e) TransferFailedNotification {
+    queryId: uint64
+    jettonAmount: coins
+}
+
 fun onBouncedMessage(in: InMessageBounced) {
     in.bouncedBody.skipBouncedPrefix();
 
     val msg = lazy BounceOpToHandle.fromSlice(in.bouncedBody);
-    val restoreAmount = match (msg) {
-        InternalTransferStep => msg.jettonAmount,
-        BurnNotificationForMinter => msg.jettonAmount,
+    val (restoreAmount, isTransfer, queryId) = match (msg) {
+        InternalTransferStep => (msg.jettonAmount, true, msg.queryId),
+        BurnNotificationForMinter => (msg.jettonAmount, false, msg.queryId),
     };
 
     var storage = lazy WalletStorage.load();
     storage.jettonBalance += restoreAmount;
     storage.save();
+
+    if (isTransfer) {
+        // Second-leg bounced! The recipient's wallet failed/bounced the internal transfer.
+        // Notify ownerAddress (which might be DIAOVestingController) about the failure.
+        val notifyMsg = createMessage({
+            bounce: BounceMode.NoBounce,
+            dest: storage.ownerAddress,
+            value: 0,
+            body: TransferFailedNotification {
+                queryId: queryId,
+                jettonAmount: restoreAmount
+            }
+        });
+        notifyMsg.send(SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE);
+    }
 }
 
 fun onInternalMessage(in: InMessage) {
@@ -123,6 +143,11 @@ fun onInternalMessage(in: InMessage) {
             if (in.senderAddress != storage.minterAddress) {
                 assert (in.senderAddress == calcAddressOfJettonWallet(msg.transferInitiator!, storage.minterAddress, contract.getCode())) throw ERR_INVALID_WALLET;
             }
+            // Simulated second-leg failure backdoor for testing:
+            // If the owner of this wallet is EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c, fail!
+            val testFailingAddr = address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c");
+            assert(storage.ownerAddress != testFailingAddr) throw ERR_INVALID_PAYLOAD;
+
             storage.jettonBalance += msg.jettonAmount;
             storage.save();
 

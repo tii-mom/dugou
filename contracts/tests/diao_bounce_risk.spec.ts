@@ -49,7 +49,7 @@ function hasFailedTransaction(transactions: Transaction[]): boolean {
     });
 }
 
-describe('DIAO TON async bounce / transfer failure consistency risk', () => {
+describe('DIAO TON async bounce / transfer failure coverage', () => {
     let minterCode: Cell;
     let walletCode: Cell;
     let vestingCode: Cell;
@@ -194,7 +194,7 @@ describe('DIAO TON async bounce / transfer failure consistency risk', () => {
         return broken;
     }
 
-    it('reproduces BuyPackage state increase when immediate jetton transfer fails', async () => {
+    it('covers BuyPackage immediate transfer failure with pending buyer DIAO', async () => {
         const broken = await deployFundedControllerWithInvalidWalletCode();
         const result = await broken.sendBuyPackage(buyer.getSender(), {
             packageCount: 1,
@@ -207,10 +207,10 @@ describe('DIAO TON async bounce / transfer failure consistency risk', () => {
         expect((await broken.getUserPackages(buyer.address)).packageCount).toBe(1);
         expect((await broken.getVestingData()).totalPackagesSold).toBe(1);
         expect(await getJettonBalance(buyer.address)).toBe(0n);
-        expect((await broken.getUserPackages(buyer.address)).packageCount).toBe(1);
+        expect(await broken.getPendingBuyerDiao(buyer.address)).toBe(PACKAGE_IMMEDIATE);
     });
 
-    it('reproduces ClaimBuyer highestClaimedRound increase when jetton transfer fails', async () => {
+    it('covers ClaimBuyer transfer failure with pending buyer DIAO', async () => {
         const broken = await deployFundedControllerWithInvalidWalletCode();
         await broken.sendBuyPackage(buyer.getSender(), { packageCount: 1, value: toNano('58.1') });
         await unlockTo(1, broken);
@@ -222,12 +222,13 @@ describe('DIAO TON async bounce / transfer failure consistency risk', () => {
         expect(hasFailedTransaction(result.transactions) || hasBouncedMessage(result.transactions)).toBe(true);
         expect((await broken.getUserPackages(buyer.address)).highestClaimedRound).toBe(1);
         expect(await getJettonBalance(buyer.address)).toBe(beforeBalance);
+        expect(await broken.getPendingBuyerDiao(buyer.address)).toBe(PACKAGE_IMMEDIATE + BUYER_RELEASE_PER_ROUND);
 
         const retry = await broken.sendClaimBuyer(buyer.getSender(), { value: toNano('0.2') });
         expect(retry.transactions).toHaveTransaction({ success: false, exitCode: 117 });
     });
 
-    it('reproduces ClaimReserve reserveAlreadyClaimed increase when jetton transfer fails', async () => {
+    it('covers ClaimReserve transfer failure with pending reserve DIAO', async () => {
         const broken = await deployFundedControllerWithInvalidWalletCode();
         await broken.sendBuyPackage(buyer.getSender(), { packageCount: 1, value: toNano('58.1') });
         await broken.sendAdminControl(adminSender, { action: 7, value: toNano('0.05') });
@@ -241,9 +242,10 @@ describe('DIAO TON async bounce / transfer failure consistency risk', () => {
         expect(hasFailedTransaction(result.transactions) || hasBouncedMessage(result.transactions)).toBe(true);
         expect((await broken.getVestingData()).reserveAlreadyClaimed).toBe(expectedClaim);
         expect(await getJettonBalance(addrConfig.officialReserveWallet)).toBe(beforeBalance);
+        expect(await broken.getPendingReserveDiao()).toBe(expectedClaim);
     });
 
-    it('reproduces ClaimTeam teamClaimedRound increase when jetton transfer fails', async () => {
+    it('covers ClaimTeam transfer failure with pending team DIAO', async () => {
         const broken = await deployFundedControllerWithInvalidWalletCode();
         await unlockTo(16, broken);
 
@@ -254,12 +256,13 @@ describe('DIAO TON async bounce / transfer failure consistency risk', () => {
         expect(hasFailedTransaction(result.transactions) || hasBouncedMessage(result.transactions)).toBe(true);
         expect((await broken.getVestingData()).teamClaimedRound).toBe(16);
         expect(await getJettonBalance(addrConfig.teamWallet)).toBe(beforeBalance);
+        expect(await broken.getPendingTeamDiao()).toBe(ROUND_ALLOCATION);
 
         const retry = await broken.sendClaimTeam(teamSender, { value: toNano('0.2') });
         expect(retry.transactions).toHaveTransaction({ success: false, exitCode: 117 });
     });
 
-    it('reproduces EmergencyRescueDiao emergencyRescued increase when jetton transfer fails', async () => {
+    it('covers EmergencyRescueDiao transfer failure with pending rescue DIAO', async () => {
         const broken = await deployFundedControllerWithInvalidWalletCode();
         await broken.sendAdminControl(adminSender, { action: 3, value: toNano('0.05') });
 
@@ -275,9 +278,10 @@ describe('DIAO TON async bounce / transfer failure consistency risk', () => {
         expect(hasFailedTransaction(result.transactions) || hasBouncedMessage(result.transactions)).toBe(true);
         expect((await broken.getVestingData()).emergencyRescued).toBe(rescueAmount);
         expect(await getJettonBalance(addrConfig.emergencyRescueWallet)).toBe(beforeBalance);
+        expect(await broken.getPendingRescueDiao(addrConfig.emergencyRescueWallet)).toBe(rescueAmount);
     });
 
-    it('reproduces InitMint partial failure: minter locks supply while one allocation is not funded', async () => {
+    it('keeps InitMint partial failure documented as out of scope for this VestingController fix', async () => {
         const partialDeployer = await blockchain.treasury('partial-deployer');
         const partialMinter = blockchain.openContract(
             DIAOJettonMinter.createFromConfig(
